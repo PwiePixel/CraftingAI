@@ -15,8 +15,11 @@ dashboard for you, and a one-command installer that sets up HTTPS on your own do
 - **Cost control**: per-user daily limits per tier, a global daily spending cap, bounded reply
   length and conversation memory, prompt caching.
 - **Legal pages** in English: Terms of Use, Privacy Policy, Acceptable Use Policy, Legal Notice.
-- **White-label**: the interface never names the model vendor. The only mention is the
-  disclosure of third-party AI providers in the Terms of Use and the Privacy Policy.
+- **White-label**: the public site never names the model vendor. The assistant is presented
+  as your own product; the Terms of Use and the Privacy Policy state truthfully that
+  third-party AI providers process the requests, without naming them. (The vendor only appears
+  where you, the operator, configure the API key: in the installer, the configuration file and
+  the admin dashboard.)
 
 Built with Next.js (App Router), React, TypeScript, Tailwind CSS and SQLite.
 
@@ -57,6 +60,7 @@ The installer asks for:
 | Administrator email and password | Your first admin account (leave the password empty to generate one) |
 | Public contact email (optional) | Shown in the legal pages; deliberately separate from the admin sign-in address |
 | Daily spending cap (USD) | Chatting pauses for the day once the estimated spend reaches it |
+| Automatic updates | Nightly deployment of new versions from Git plus OS security updates |
 | Firewall | Optionally allow only SSH, HTTP and HTTPS |
 
 It then installs Node.js and the [Caddy](https://caddyserver.com) web server, builds the
@@ -164,17 +168,47 @@ would share one rate-limit bucket. In that case add the CDN's address ranges as
 | Restart | `sudo systemctl restart lishia` |
 | HTTPS / certificate logs | `journalctl -u caddy -e` |
 
-**Update** to a newer version: pull the code and run the installer again. It keeps your
-configuration and data. The new version is built next to the running one and only takes over
-once the build has succeeded; if it fails to start, the previous version is restored.
+**Update** to the newest version with one command. It fetches the code from Git, builds the
+new version next to the running one and only switches over once the build has succeeded; if the
+new version fails to start, the previous one is restored. When there is nothing new, it returns
+immediately.
 
 ```bash
-git pull
+sudo lishia-update
+```
+
+`sudo bash install.sh --update` does the same; add `--force` to rebuild although nothing changed.
+
+**Automatic updates:** if you said yes during installation, a timer runs that update every night
+around 04:00, and the operating system installs its own security updates (`unattended-upgrades`).
+The web server and Node.js packages are refreshed during each update as well.
+
+```bash
+systemctl list-timers lishia-update.timer
 ```
 
 ```bash
-sudo bash install.sh
+journalctl -u lishia-update -e
 ```
+
+Switch the nightly update off or on:
+
+```bash
+sudo systemctl disable --now lishia-update.timer
+```
+
+```bash
+sudo systemctl enable --now lishia-update.timer
+```
+
+Things to know about automatic updates:
+
+- The server deploys whatever is pushed to the branch your checkout follows. Protect that
+  repository (two-factor authentication, no shared write access) as carefully as the server.
+- A private repository needs credentials that work without a prompt, for example a read-only
+  deploy key for the user who owns the checkout.
+- Keep the checkout where you ran the installer; the update command points to it. It should
+  belong to root or to a user you trust with root, because its `install.sh` runs as root.
 
 **Change the domain, API key or other answers:** `sudo bash install.sh --reconfigure`, or edit
 `/etc/lishia/lishia.env` and restart the service.
@@ -194,7 +228,8 @@ next to it), and start the service again.
 
 **Unattended install:** every question can be answered through environment variables
 (`DOMAIN`, `ACME_EMAIL`, `ANTHROPIC_API_KEY`, `SITE_NAME`, `ASSISTANT_NAME`, `ADMIN_EMAIL`,
-`ADMIN_PASSWORD`, `CONTACT_EMAIL`, `DAILY_BUDGET_USD`, `SETUP_FIREWALL=yes|no`) together with
+`ADMIN_PASSWORD`, `CONTACT_EMAIL`, `DAILY_BUDGET_USD`, `SETUP_FIREWALL=yes|no`,
+`AUTO_UPDATE=yes|no`) together with
 `ASSUME_YES=1`.
 
 ### File locations
@@ -246,7 +281,8 @@ npm run lint && npm run typecheck && npm test
 ### Project layout
 
 ```
-install.sh                 Server installer (Node.js, Caddy, systemd service, firewall, backups)
+install.sh                 Server installer and updater (Node.js, Caddy, systemd, firewall, backups)
+installer.sh               Alias for install.sh
 scripts/                   Admin command line, database backup, mock AI provider
 src/proxy.ts               Per-request Content-Security-Policy
 src/app/(auth)             Sign-in and registration

@@ -2,8 +2,12 @@
 #
 # lishia.bond installer for Debian and Ubuntu servers.
 #
-#   sudo bash install.sh              install, or update an existing installation
-#   sudo bash install.sh --reconfigure   ask all questions again
+#   sudo bash install.sh                install (or update an existing installation)
+#   sudo bash install.sh --update       fetch the newest version from Git and deploy it
+#   sudo bash install.sh --update --force   rebuild even when nothing has changed
+#   sudo bash install.sh --reconfigure  ask all questions again
+#
+# After the installation the same update is available as:  sudo lishia-update
 #
 # What it does:
 #   1. Installs Node.js, the Caddy web server and build tools.
@@ -12,11 +16,14 @@
 #   4. Configures HTTPS for your domain. Caddy obtains the certificate from
 #      Let's Encrypt and renews it automatically; no cron job is needed.
 #   5. Sets up a daily database backup and (optionally) the firewall.
+#   6. Optionally keeps everything up to date by itself: a nightly timer
+#      deploys new versions from your Git repository, and the operating
+#      system installs its security updates automatically.
 #
 # Every answer can also be supplied as an environment variable for unattended
 # installs: DOMAIN, ACME_EMAIL, ANTHROPIC_API_KEY, SITE_NAME, ASSISTANT_NAME,
 # ADMIN_EMAIL, ADMIN_PASSWORD, CONTACT_EMAIL, DAILY_BUDGET_USD,
-# SETUP_FIREWALL (yes/no), ASSUME_YES=1.
+# SETUP_FIREWALL (yes/no), AUTO_UPDATE (yes/no), ASSUME_YES=1.
 # SKIP_DNS_CHECK=1 and SKIP_KEY_CHECK=1 skip the respective pre-flight checks.
 
 set -Eeuo pipefail
@@ -36,12 +43,19 @@ NODE_MAJOR="${NODE_MAJOR:-24}"
 MIN_NODE_MAJOR=22
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+UPDATE_CMD="/usr/local/sbin/${APP_NAME}-update"
+DEPLOYED_FILE="${CONF_DIR}/deployed-commit"
+
 RECONFIGURE=0
+UPDATE_ONLY=0
+FORCE=0
 for arg in "$@"; do
   case "$arg" in
     --reconfigure) RECONFIGURE=1 ;;
+    --update) UPDATE_ONLY=1 ;;
+    --force) FORCE=1 ;;
     -h | --help)
-      sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -89,7 +103,7 @@ trap 'printf "\n%sInstallation failed%s near line %s. Nothing above this line wa
 # ----------------------------------------------------------------- input ----
 
 # Questions are read from the terminal even when the script itself is piped in.
-if [[ -r /dev/tty ]] && [[ "${ASSUME_YES:-0}" != "1" ]]; then
+if [[ -r /dev/tty ]] && [[ "${ASSUME_YES:-0}" != "1" ]] && [[ "$UPDATE_ONLY" -eq 0 ]]; then
   INTERACTIVE=1
 else
   INTERACTIVE=0
@@ -134,6 +148,27 @@ valid_domain() { [[ "$1" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-
 # Deliberately strict: these values are written into configuration files.
 valid_email() { [[ "$1" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$ ]]; }
 
+# ------------------------------------------------------------------- git ----
+
+is_git_checkout() { [[ -d "${SOURCE_DIR}/.git" ]] && command -v git >/dev/null 2>&1; }
+
+# Git always runs as the owner of the checkout, never as root, and never
+# stops to ask for a password.
+source_git() {
+  local owner home
+  owner="$(stat -c %U "$SOURCE_DIR")"
+  if [[ "$owner" == "root" || "$owner" == "UNKNOWN" ]]; then
+    GIT_TERMINAL_PROMPT=0 git -C "$SOURCE_DIR" "$@"
+  else
+    home="$(getent passwd "$owner" | cut -d: -f6)"
+    runuser -u "$owner" -- env HOME="${home:-/nonexistent}" GIT_TERMINAL_PROMPT=0 git -C "$SOURCE_DIR" "$@"
+  fi
+}
+
+source_commit() {
+  if is_git_checkout; then source_git rev-parse HEAD 2>/dev/null || true; fi
+}
+
 # ----------------------------------------------------------- pre-flight ----
 
 [[ "$(id -u)" -eq 0 ]] || die "Please run this installer as root:  sudo bash install.sh"
@@ -151,20 +186,48 @@ case "${ID:-}" in
   *) warn "Untested distribution '${ID:-unknown}'. Continuing, but Debian or Ubuntu is recommended." ;;
 esac
 
+# Only one installation or update may run at a time (manual run vs. nightly timer).
+LOCK_DIR="/run/lock"
+[[ -d "$LOCK_DIR" ]] || LOCK_DIR="/var/lock"
+exec 9>"${LOCK_DIR}/${APP_NAME}-install.lock"
+flock -n 9 || die "Another installation or update is already running. Try again in a few minutes."
+
+if [[ "${LISHIA_SOURCE_READY:-0}" != "1" ]]; then
+  printf '\n%s%s installer%s\n' "$BOLD" "lishia.bond" "$RESET"
+  printf '%sSelf-hosted AI chat with automatic HTTPS.%s\n' "$DIM" "$RESET"
+fi
+
+if [[ "$UPDATE_ONLY" -eq 1 ]]; then
+  [[ "$RECONFIGURE" -eq 0 ]] || die "--update and --reconfigure cannot be combined."
+  [[ -f "$ENV_FILE" ]] || die "lishia.bond is not installed on this server yet. Run:  sudo bash install.sh"
+  if [[ "${LISHIA_SOURCE_READY:-0}" != "1" ]] && is_git_checkout; then
+    step "Fetching the latest version"
+    if ! source_git pull --ff-only --quiet; then
+      warn "The checkout in ${SOURCE_DIR} could not be updated from its Git repository."
+      warn "Typical causes: no network, a private repository without stored credentials"
+      warn "(set up a deploy key), or local changes that conflict with the new version."
+      die "Nothing was changed; the running version stays as it is."
+    fi
+    ok "Source is at commit $(source_git rev-parse --short HEAD)"
+    # Carry on with the installer that was just fetched, not with this copy.
+    exec env LISHIA_SOURCE_READY=1 bash "${SOURCE_DIR}/install.sh" "$@"
+  fi
+fi
+
 # Private scratch space: nothing sensitive is ever placed in a shared directory.
 WORK_DIR="$(mktemp -d)"
 chmod 700 "$WORK_DIR"
 
-printf '\n%s%s installer%s\n' "$BOLD" "lishia.bond" "$RESET"
-printf '%sSelf-hosted AI chat with automatic HTTPS.%s\n' "$DIM" "$RESET"
-
 UPDATE=0
 if [[ -f "$ENV_FILE" && "$RECONFIGURE" -eq 0 ]]; then
   UPDATE=1
-  step "Existing installation found"
-  info "Updating the application and keeping your configuration and data."
-  info "Run with --reconfigure to change the domain, API key or other answers."
+  if [[ "$UPDATE_ONLY" -eq 0 ]]; then
+    step "Existing installation found"
+    info "Updating the application and keeping your configuration and data."
+    info "Run with --reconfigure to change the domain, API key or other answers."
+  fi
 fi
+SOURCE_COMMIT="$(source_commit)"
 
 # ------------------------------------------------------------ questions ----
 
@@ -272,6 +335,20 @@ if [[ "$UPDATE" -eq 0 ]]; then
     DAILY_BUDGET_USD=""
   done
 
+  if ! is_git_checkout; then
+    [[ "${AUTO_UPDATE:-no}" == "no" ]] || warn "Automatic updates need a Git checkout (git clone); they stay switched off."
+    AUTO_UPDATE="no"
+  elif [[ -z "${AUTO_UPDATE:-}" ]]; then
+    info "Automatic updates deploy new versions from your Git repository every night"
+    info "and let the operating system install its security updates by itself."
+    if confirm "Enable automatic updates?" y; then
+      AUTO_UPDATE="yes"
+    else
+      AUTO_UPDATE="no"
+    fi
+  fi
+  [[ "$AUTO_UPDATE" == "yes" || "$AUTO_UPDATE" == "no" ]] || die "AUTO_UPDATE must be yes or no."
+
   if [[ -z "${SETUP_FIREWALL:-}" ]]; then
     if confirm "Configure the firewall (allow SSH, HTTP and HTTPS only)?" y; then
       SETUP_FIREWALL="yes"
@@ -314,7 +391,20 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get update -qq
   apt-get install -y -qq caddy >/dev/null
 fi
+if [[ "$UPDATE" -eq 1 ]]; then
+  # Keep the web server and the JavaScript runtime patched as well.
+  apt-get install -y -qq --only-upgrade caddy nodejs >/dev/null 2>&1 ||
+    warn "Could not check for newer Caddy and Node.js packages."
+fi
 ok "Caddy $(caddy version 2>/dev/null | awk '{print $1}')"
+
+# An update with nothing new to deploy stops here.
+if [[ "$UPDATE_ONLY" -eq 1 && "$FORCE" -eq 0 && -n "$SOURCE_COMMIT" && -f "$DEPLOYED_FILE" ]] &&
+  [[ "$(cat "$DEPLOYED_FILE")" == "$SOURCE_COMMIT" ]] && systemctl is-active --quiet "$APP_NAME"; then
+  printf '\n%s%sAlready up to date.%s The running version is commit %s.\n\n' \
+    "$GREEN" "$BOLD" "$RESET" "${SOURCE_COMMIT:0:7}"
+  exit 0
+fi
 
 # -------------------------------------------------------- sanity checks ----
 
@@ -598,6 +688,71 @@ find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | head -n -2 | while
 done
 ok "Service is running (daily backups in ${DATA_DIR}/backups)"
 
+# Remember which version is live, so an update can tell whether there is news.
+if [[ -n "$SOURCE_COMMIT" ]]; then
+  printf '%s\n' "$SOURCE_COMMIT" >"$DEPLOYED_FILE"
+else
+  rm -f "$DEPLOYED_FILE"
+fi
+
+# ---------------------------------------------------------------- updates ----
+
+# "sudo lishia-update" fetches and deploys the newest version at any time.
+{
+  printf '#!/usr/bin/env bash\n'
+  printf '# Updates lishia.bond from its source checkout. Written by install.sh.\n'
+  printf 'exec bash %q --update "$@"\n' "${SOURCE_DIR}/install.sh"
+} >"$UPDATE_CMD"
+chmod 755 "$UPDATE_CMD"
+
+cat >"/etc/systemd/system/${APP_NAME}-update.service" <<UNIT
+[Unit]
+Description=Update lishia.bond to the latest version
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${UPDATE_CMD}
+UNIT
+
+cat >"/etc/systemd/system/${APP_NAME}-update.timer" <<UNIT
+[Unit]
+Description=Nightly lishia.bond update
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=45m
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+systemctl daemon-reload
+
+# The choice is only applied when it was just made; a plain update keeps it.
+if [[ "$UPDATE" -eq 0 ]]; then
+  if [[ "$AUTO_UPDATE" == "yes" ]]; then
+    step "Switching on automatic updates"
+    systemctl enable --quiet --now "${APP_NAME}-update.timer"
+    ok "New versions are deployed every night around 04:00 (journalctl -u ${APP_NAME}-update)"
+    # Security updates of the operating system itself.
+    if apt-get install -y -qq unattended-upgrades >/dev/null 2>&1; then
+      printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' \
+        >/etc/apt/apt.conf.d/20auto-upgrades
+      ok "The operating system installs its security updates automatically"
+    else
+      warn "unattended-upgrades could not be installed; system updates stay manual."
+    fi
+    if [[ "$(stat -c %U "$SOURCE_DIR")" != "root" ]]; then
+      warn "${SOURCE_DIR} belongs to $(stat -c %U "$SOURCE_DIR"). The nightly update runs this"
+      warn "directory's install.sh as root, so only people you trust with root should be able to change it."
+    fi
+  else
+    systemctl disable --quiet --now "${APP_NAME}-update.timer" 2>/dev/null || true
+  fi
+fi
+
 # ------------------------------------------------------------------ admin ----
 
 if [[ "$UPDATE" -eq 0 ]]; then
@@ -727,8 +882,14 @@ if [[ "$UPDATE" -eq 0 ]]; then
 else
   printf '  %s has been updated and restarted.\n' "https://${DOMAIN}"
 fi
+if systemctl is-enabled --quiet "${APP_NAME}-update.timer" 2>/dev/null; then
+  printf '\n  Automatic updates are on: new versions are deployed every night.\n'
+else
+  printf '\n  Automatic updates are off. Update whenever you like with:  sudo %s-update\n' "$APP_NAME"
+fi
 printf '\n  Useful commands:\n'
-printf '    systemctl status %s        service status\n' "$APP_NAME"
-printf '    journalctl -u %s -f        live logs\n' "$APP_NAME"
-printf '    sudo bash install.sh              update after pulling new code\n'
-printf '    %s      configuration (API key, domain)\n\n' "$ENV_FILE"
+printf '    sudo %s-update                 fetch and deploy the newest version now\n' "$APP_NAME"
+printf '    systemctl status %s            service status\n' "$APP_NAME"
+printf '    journalctl -u %s -f            live logs\n' "$APP_NAME"
+printf '    journalctl -u %s-update -e     log of the automatic updates\n' "$APP_NAME"
+printf '    %s    configuration (API key, domain)\n\n' "$ENV_FILE"

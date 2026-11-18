@@ -146,14 +146,15 @@ export default function TermsPage() {
         automated means.
       </p>
 
-      <h2>7. Third-party technology</h2>
+      <h2>7. How responses are generated</h2>
       <p>
-        The Service is built on a combination of AI models, including models supplied by
-        third-party providers such as Anthropic. To generate a response, your messages and the
-        relevant conversation history are transmitted to these providers and processed by them on
-        our behalf. Details are set out in our <Link href="/privacy">Privacy Policy</Link>. The
-        providers&apos; own usage policies also restrict what the models may be used for; requests
-        that conflict with those policies may be declined.
+        {assistantName} is our own assistant: we design how it behaves and we operate the Service.
+        To generate responses, {assistantName} uses large language models, some of which are
+        operated by third-party providers. For this purpose your messages and the relevant
+        conversation history are transmitted to those providers and processed by them on our
+        behalf. Details are set out in our <Link href="/privacy">Privacy Policy</Link>. The
+        providers&apos; usage policies also restrict what the models may be used for; requests that
+        conflict with those policies may be declined.
       </p>
 
       <h2>8. Our rights</h2>

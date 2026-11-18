@@ -10,6 +10,7 @@ import {
   Gem,
   Lightbulb,
   PenLine,
+  Server,
   ShieldCheck,
   Sparkles,
   Zap,
@@ -106,9 +107,9 @@ export default async function HomePage() {
       text: "Export your data, or delete single chats, all chats or your whole account whenever you like.",
     },
     {
-      icon: Zap,
-      title: "Free to use",
-      text: "Every account includes a daily number of messages for each model, at no cost.",
+      icon: Server,
+      title: "Hosted by us",
+      text: "The site, your account and your chat history live on a server we operate ourselves.",
     },
   ];
 
@@ -148,8 +149,8 @@ export default async function HomePage() {
         "Yes. A free account keeps your conversations private to you and makes fair daily limits possible.",
     },
     {
-      question: `Which technology is behind ${assistantName}?`,
-      answer: `${assistantName} is the assistant of ${siteName}. It is built on a combination of AI models, including models from third-party providers. The Privacy Policy lists the providers involved.`,
+      question: `Who is behind ${assistantName}?`,
+      answer: `${assistantName} is our own assistant, built and run by the ${siteName} team. We design how it behaves, operate the site, and keep your account and your conversations on a server we run ourselves. To write its answers, ${assistantName} uses large language models, including models operated by third-party providers. The Privacy Policy explains what is shared with them.`,
     },
     {
       question: "What happens to my conversations?",
@@ -296,7 +297,7 @@ export default async function HomePage() {
             <SectionHeading
               eyebrow={`About ${siteName}`}
               title="An AI assistant you can simply talk to"
-              text={`${siteName} is the home of ${assistantName}, an AI assistant that runs in your browser. You write a message in plain language and ${assistantName} replies within seconds: explaining, drafting, summarising, translating, debugging or brainstorming with you. There is nothing to install, and your conversations are saved to your account so you can continue them later on any device.`}
+              text={`${siteName} is the home of ${assistantName}, our own AI assistant, which we are building and running ourselves. You write a message in plain language and ${assistantName} replies within seconds: explaining, drafting, summarising, translating, debugging or brainstorming with you. There is nothing to install, and your conversations are saved to your account so you can continue them later on any device.`}
             />
             <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {useCases.map(({ icon: Icon, title, text }) => (

@@ -108,23 +108,25 @@ export default function PrivacyPage() {
         <Link href="/acceptable-use">Acceptable Use Policy</Link>.
       </p>
 
-      <h2>4. AI providers and other recipients</h2>
+      <h2>4. Where your data is processed and who receives it</h2>
       <p>
-        {siteName} is built on a combination of AI models, including models supplied by third-party
-        providers. To generate a response, the message you send and the relevant part of the
-        conversation history are transmitted to the provider of the selected model. We do not send
-        your name, email address or account identifier with these requests.
+        The website, your account and your conversation history are stored on a server that we
+        operate ourselves. To generate a response, the message you send and the relevant part of
+        the conversation history are additionally transmitted to the provider of the language
+        model that answers it. We do not send your name, email address or account identifier with
+        these requests.
       </p>
       <ul>
         <li>
-          <strong>AI model providers</strong>, including Anthropic, PBC (San Francisco, USA),
-          process conversation content on our behalf in order to generate responses. Under the
-          terms that apply to our use of their services, providers may retain requests for a
-          limited time for security and abuse-prevention purposes.
+          <strong>AI model providers</strong> process conversation content on our behalf in order
+          to generate responses. They are located in the United States. Under the terms that apply
+          to our use of their services, they may retain requests for a limited time for security
+          and abuse-prevention purposes. You can ask us at any time which providers we currently
+          use.
         </li>
         <li>
-          <strong>Hosting and infrastructure providers</strong> operate the servers on which the
-          Service and its database run.
+          <strong>Hosting and infrastructure providers</strong> supply the data-centre capacity
+          and network on which our server runs.
         </li>
         <li>
           <strong>Authorities</strong>, where we are legally obliged to disclose data or where this
@@ -133,7 +135,7 @@ export default function PrivacyPage() {
       </ul>
       <p>
         We do not sell your personal data, and we do not share it with advertisers. We do not use
-        your conversations to train AI models of our own.
+        your conversations to train AI models.
       </p>
 
       <h2>5. Transfers to other countries</h2>
