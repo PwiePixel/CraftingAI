@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
@@ -212,7 +213,11 @@ export function PlanSection({
         time; your plan then stays active until the end of the period you have paid for. When you
         switch between paid plans, the new plan starts immediately and unused time of the old one is
         credited. Limits count messages in rolling windows: room frees up continuously as earlier
-        messages age out.
+        messages age out. By ordering a paid plan you agree to the{" "}
+        <Link href="/subscription-terms" target="_blank" className="font-medium text-fg underline underline-offset-2">
+          Subscription Terms
+        </Link>
+        , which also explain your right of withdrawal.
       </p>
 
       <ConfirmDialog

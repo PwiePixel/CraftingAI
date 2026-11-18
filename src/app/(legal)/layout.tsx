@@ -2,17 +2,14 @@ import Link from "next/link";
 import { Logo } from "@/components/logo";
 import { buttonClass } from "@/components/ui";
 import { getAuth } from "@/lib/server/auth";
+import { hasPaidPlans } from "@/lib/server/plans";
 import { getSettings } from "@/lib/server/settings";
-
-const links = [
-  { href: "/terms", label: "Terms of Use" },
-  { href: "/privacy", label: "Privacy Policy" },
-  { href: "/acceptable-use", label: "Acceptable Use" },
-  { href: "/imprint", label: "Legal Notice" },
-];
+import { legalLinks } from "@/lib/shared/legal-links";
 
 export default async function LegalLayout({ children }: { children: React.ReactNode }) {
-  const { siteName } = getSettings();
+  const settings = getSettings();
+  const { siteName } = settings;
+  const links = legalLinks(hasPaidPlans(settings));
   const signedIn = Boolean(await getAuth());
   return (
     <div className="flex min-h-dvh flex-col">

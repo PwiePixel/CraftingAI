@@ -81,6 +81,11 @@ export async function createCheckout(user: UserRow, plan: Plan): Promise<string>
     ],
     metadata: { userId: user.id, planId: plan.id },
     subscription_data: { metadata: { userId: user.id, planId: plan.id } },
+    custom_text: {
+      submit: {
+        message: `By subscribing you agree to the [Subscription Terms](${env.appUrl}/subscription-terms) of ${settings.siteName} and ask us to start your plan immediately. Your right of withdrawal is explained there.`,
+      },
+    },
     success_url: `${env.appUrl}/settings/plan?checkout=success`,
     cancel_url: `${env.appUrl}/settings/plan?checkout=cancelled`,
   });

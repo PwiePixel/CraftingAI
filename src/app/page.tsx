@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Code,
   Construction,
+  CreditCard,
   Download,
   Gem,
   Lightbulb,
@@ -20,6 +21,7 @@ import { buttonClass } from "@/components/ui";
 import { getAuth } from "@/lib/server/auth";
 import { planCards } from "@/lib/server/plans";
 import { getSettings } from "@/lib/server/settings";
+import { legalLinks } from "@/lib/shared/legal-links";
 import { TIER_IDS, type TierId } from "@/lib/shared/types";
 
 const tierIcons: Record<TierId, typeof Zap> = { lite: Zap, pro: Sparkles, ultra: Gem };
@@ -130,12 +132,15 @@ export default async function HomePage() {
     "Formatted code, tables and mathematics",
     "Light and dark mode on desktop and mobile",
     "Data export and account deletion",
+    ...(hasPaidPlans ? ["Optional paid plans with higher limits"] : []),
   ];
 
   const expectations = [
     {
       title: "Things will change",
-      text: "Features, model names and daily limits may be adjusted as the project grows.",
+      text: hasPaidPlans
+        ? "Features, model names and the limits of the free plan may be adjusted as the project grows. Changes to a paid plan are announced in advance."
+        : "Features, model names and daily limits may be adjusted as the project grows.",
     },
     {
       title: "Short interruptions are possible",
@@ -159,14 +164,28 @@ export default async function HomePage() {
     {
       question: `Is ${siteName} free?`,
       answer: hasPaidPlans
-        ? "Yes, the free plan stays free. Every account gets a daily number of messages for each model, and the limits reset at midnight UTC. If you need more, paid plans with higher limits are available."
+        ? "The free plan is free and needs no payment details. Every account gets a daily number of messages for each model, and the limits reset at midnight UTC. If you need more, you can upgrade to a paid plan with higher limits."
         : "Yes. Every account gets a daily number of messages for each model. The limits reset at midnight UTC.",
     },
     {
       question: "Do I need an account?",
       answer:
-        "Yes. A free account keeps your conversations private to you and makes fair daily limits possible.",
+        "Yes. An account costs nothing, keeps your conversations private to you and makes fair usage limits possible.",
     },
+    ...(hasPaidPlans
+      ? [
+          {
+            question: "How do the paid plans work?",
+            answer:
+              "A paid plan is a monthly subscription that raises your limits. Instead of a daily allowance you get a number of messages per five hours and per week for each model, and room frees up continuously as earlier messages age out. You choose a plan in your account settings and can see your usage there at any time.",
+          },
+          {
+            question: "How do I pay, and can I cancel?",
+            answer:
+              "Payment is handled by Stripe on its own secure page; we never see your full card details. The plan renews every month until you cancel, which takes two clicks in your account settings. After cancelling you keep the plan until the end of the month you paid for and then continue on the free plan. The Subscription Terms have the details, including the right of withdrawal.",
+          },
+        ]
+      : []),
     {
       question: `Who is behind ${assistantName}?`,
       answer: selfHosted
@@ -238,29 +257,32 @@ export default async function HomePage() {
             ) : (
               <p className="inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent">
                 <Sparkles size={13} />
-                Free to use
+                {hasPaidPlans ? "Free plan included" : "Free to use"}
               </p>
             )}
             <h1 className="mt-5 text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
               Meet {assistantName}, the AI assistant that gets things done.
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-fg-muted">
-              {siteName} is a free AI chat assistant for questions, writing, code and ideas. Clear
-              answers in a fast, distraction-free chat, without ads and without tracking.
+              {hasPaidPlans
+                ? `${siteName} is an AI chat assistant for questions, writing, code and ideas. Clear answers in a fast, distraction-free chat, without ads and without tracking. Start on the free plan and upgrade only if you need more.`
+                : `${siteName} is a free AI chat assistant for questions, writing, code and ideas. Clear answers in a fast, distraction-free chat, without ads and without tracking.`}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link href={primary.href} className={buttonClass("primary", "lg")}>
                 {primary.label}
                 <ArrowRight size={18} />
               </Link>
-              <a href="#about" className={buttonClass("secondary", "lg")}>
-                Learn more
+              <a href={hasPaidPlans ? "#plans" : "#about"} className={buttonClass("secondary", "lg")}>
+                {hasPaidPlans ? "Compare plans" : "Learn more"}
               </a>
             </div>
             <p className="mt-4 text-sm text-fg-subtle">
               {!signedIn && !registrationOpen
                 ? "Registration is currently closed."
-                : "No credit card. No ads. No tracking."}
+                : hasPaidPlans
+                  ? "Free to start, no payment details needed. No ads. No tracking."
+                  : "No credit card. No ads. No tracking."}
             </p>
           </div>
 
@@ -362,7 +384,7 @@ export default async function HomePage() {
                 title="The right model for every task"
                 text={`Use the fast model for everyday questions and a more capable one when a problem needs more depth. You can switch at any time, even in the middle of a conversation.${
                   selfHosted ? " All of them are our own test models and still in development." : ""
-                }`}
+                }${hasPaidPlans ? " Paid plans raise the limits shown here." : ""}`}
               />
               <div className="mt-10 grid gap-4 md:grid-cols-3">
                 {tiers.map((tier) => {
@@ -376,7 +398,9 @@ export default async function HomePage() {
                       <p className="mt-1 text-sm leading-relaxed text-fg-muted">{tier.description}</p>
                       <p className="mt-4 text-sm font-medium">
                         {tier.dailyLimit} {tier.dailyLimit === 1 ? "message" : "messages"} per day
-                        <span className="font-normal text-fg-muted"> · free</span>
+                        <span className="font-normal text-fg-muted">
+                          {hasPaidPlans ? " · on the free plan" : " · free"}
+                        </span>
                       </p>
                     </div>
                   );
@@ -388,12 +412,12 @@ export default async function HomePage() {
 
         {/* Plans */}
         {hasPaidPlans ? (
-          <section id="plans" className="scroll-mt-20">
+          <section id="plans" className="scroll-mt-20 border-b border-border">
             <div className="mx-auto w-full max-w-6xl px-5 py-16 lg:py-20">
               <SectionHeading
                 eyebrow="Plans"
                 title="Start free, upgrade when you need more"
-                text="The free plan covers everyday use. Paid plans raise the limits and let them refresh on a rolling basis instead of once a day. You can cancel at any time."
+                text="The free plan covers everyday use and needs no payment details. Paid plans are monthly subscriptions that raise the limits and let them refresh on a rolling basis instead of once a day."
               />
               <div className={`mt-10 grid gap-4 ${plans.length > 2 ? "lg:grid-cols-3" : "sm:grid-cols-2"}`}>
                 {plans.map((plan) => (
@@ -401,7 +425,14 @@ export default async function HomePage() {
                     key={plan.id}
                     className={`flex flex-col rounded-2xl border bg-surface p-6 ${plan.highlighted ? "border-accent" : "border-border"}`}
                   >
-                    <h3 className="text-lg font-semibold">{plan.name}</h3>
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-lg font-semibold">{plan.name}</h3>
+                      {plan.highlighted ? (
+                        <span className="rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-medium text-accent">
+                          Popular
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="mt-2 text-3xl font-semibold tracking-tight">
                       {plan.price ?? "Free"}
                       {plan.price ? <span className="text-sm font-normal text-fg-muted"> / month</span> : null}
@@ -416,14 +447,41 @@ export default async function HomePage() {
                       ))}
                     </ul>
                     <Link
-                      href={signedIn ? "/settings/plan" : primary.href}
+                      href={plan.paid && signedIn ? "/settings/plan" : primary.href}
                       className={`${buttonClass(plan.highlighted ? "primary" : "secondary", "md")} mt-6`}
                     >
-                      {plan.paid ? `Choose ${plan.name}` : "Start for free"}
+                      {plan.paid ? `Choose ${plan.name}` : signedIn || !registrationOpen ? primary.label : "Start for free"}
                     </Link>
                   </div>
                 ))}
               </div>
+              <ul className="mt-8 grid gap-x-8 gap-y-4 text-sm text-fg-muted md:grid-cols-3">
+                <li className="flex items-start gap-2.5">
+                  <Check size={16} className="mt-0.5 shrink-0 text-success" />
+                  <span>
+                    <span className="font-medium text-fg">Cancel at any time.</span> You keep your plan
+                    until the end of the month you paid for.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <CreditCard size={16} className="mt-0.5 shrink-0 text-accent" />
+                  <span>
+                    <span className="font-medium text-fg">Secure payment.</span> Handled by Stripe; we
+                    never see your full card details.
+                  </span>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <ShieldCheck size={16} className="mt-0.5 shrink-0 text-accent" />
+                  <span>
+                    <span className="font-medium text-fg">Clear terms.</span> Renewal, cancellation and
+                    your right of withdrawal are set out in the{" "}
+                    <Link href="/subscription-terms" className="font-medium text-accent hover:underline">
+                      Subscription Terms
+                    </Link>
+                    .
+                  </span>
+                </li>
+              </ul>
             </div>
           </section>
         ) : null}
@@ -551,18 +609,11 @@ export default async function HomePage() {
             © {new Date().getUTCFullYear()} {siteName}
           </span>
           <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-1">
-            <Link href="/terms" className="hover:text-fg">
-              Terms of Use
-            </Link>
-            <Link href="/privacy" className="hover:text-fg">
-              Privacy Policy
-            </Link>
-            <Link href="/acceptable-use" className="hover:text-fg">
-              Acceptable Use
-            </Link>
-            <Link href="/imprint" className="hover:text-fg">
-              Legal Notice
-            </Link>
+            {legalLinks(hasPaidPlans).map((link) => (
+              <Link key={link.href} href={link.href} className="hover:text-fg">
+                {link.label}
+              </Link>
+            ))}
           </nav>
         </div>
       </footer>

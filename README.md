@@ -20,7 +20,9 @@ dashboard for you, and a one-command installer that sets up HTTPS on your own do
   legal details, audit log.
 - **Cost control**: per-user limits per tier, a global daily spending cap, bounded reply
   length and conversation memory, prompt caching.
-- **Legal pages** in English: Terms of Use, Privacy Policy, Acceptable Use Policy, Legal Notice.
+- **Legal pages** in English: Terms of Use, Privacy Policy, Acceptable Use Policy, Legal Notice
+  and, as soon as a paid plan is enabled, Subscription Terms (the purchase contract for paid
+  plans, including the right of withdrawal for consumers and a model withdrawal form).
 - **White-label**: the public site never names the model vendor. The assistant is presented
   as your own product; the Terms of Use and the Privacy Policy state truthfully that
   third-party AI providers process the requests, without naming them. (The vendor only appears
@@ -188,8 +190,12 @@ How it behaves:
   new subscribers and leaves the existing ones untouched.
 
 Before you charge money: selling subscriptions to consumers comes with legal duties that depend
-on your country (withdrawal rights, cancellation, price display, taxes, invoices). The Terms of
-Use contain a general section on paid plans; have it and your Stripe tax settings checked.
+on your country (withdrawal rights, cancellation, price display, taxes, invoices). The
+Subscription Terms at `/subscription-terms` are a carefully written template, not legal advice;
+have them and your Stripe tax settings checked. They promise 14 days' notice before a price rise
+or lower limits reach an existing subscriber. Note that changed limits apply to everyone on a
+plan as soon as you save them, so announce such a change first (Admin → Settings →
+announcement) and save it afterwards.
 
 ---
 
@@ -389,7 +395,7 @@ src/proxy.ts               Per-request Content-Security-Policy
 src/app/(auth)             Sign-in and registration
 src/app/(app)              Chat and account settings (profile, plan, usage, appearance, security, data)
 src/app/(admin)            Admin dashboard
-src/app/(legal)            Terms of Use, Privacy Policy, Acceptable Use Policy, Legal Notice
+src/app/(legal)            Terms of Use, Privacy Policy, Acceptable Use Policy, Subscription Terms, Legal Notice
 src/app/api                JSON API, the streaming chat endpoint, billing and the Stripe webhook
 src/lib/server             Database, authentication, sessions, limits, plans, billing, AI client
 src/lib/shared             Types and validation shared by server and browser

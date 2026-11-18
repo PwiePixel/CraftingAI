@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ContactEmail, LegalPage } from "@/components/legal/legal-page";
+import { hasPaidPlans } from "@/lib/server/plans";
 import { getSettings, publicSite } from "@/lib/server/settings";
 
 export const metadata: Metadata = { title: "Terms of Use" };
@@ -10,7 +11,7 @@ export default function TermsPage() {
   const { siteName, assistantName, legal } = publicSite(settings);
   const operator = legal.operatorName;
   const selfHosted = settings.modelHosting === "self-hosted";
-  const hasPaidPlans = settings.billing.plans.some((plan) => plan.enabled);
+  const paidPlans = hasPaidPlans(settings);
   const sources = settings.baseModelSources;
 
   return (
@@ -84,52 +85,21 @@ export default function TermsPage() {
         </li>
       </ul>
 
-      {hasPaidPlans ? (
+      {paidPlans ? (
         <>
           <h3>Paid plans</h3>
           <p>
-            In addition to the free plan we offer paid plans with higher limits. The plans, their
-            limits and their prices are shown on the plan page in your account settings before you
-            order.
+            In addition to the free plan we offer paid plans with higher limits. A paid plan is a
+            monthly subscription that renews automatically until it is cancelled; you can cancel at
+            any time with effect from the end of the period you have paid for. Payments are handled
+            by our payment service provider, Stripe.
           </p>
-          <ul>
-            <li>
-              <strong>Subscription and renewal.</strong> A paid plan is a subscription that is billed
-              in advance for one month at a time and renews automatically for another month until it
-              is cancelled.
-            </li>
-            <li>
-              <strong>Payment.</strong> Payments are handled by our payment service provider, Stripe.
-              You authorise us to charge the price of your plan to the payment method you provide for
-              every billing period. If a payment fails, we may suspend the paid plan until payment is
-              made.
-            </li>
-            <li>
-              <strong>Cancellation.</strong> You can cancel at any time in your account settings.
-              The cancellation takes effect at the end of the billing period you have already paid
-              for; until then you keep the paid plan. Payments for a period that has already started
-              are not refunded, unless the law requires it.
-            </li>
-            <li>
-              <strong>Changing plans.</strong> If you switch to another paid plan, the new plan
-              starts immediately and the unused part of the previous plan is credited to your
-              billing account.
-            </li>
-            <li>
-              <strong>Price and limit changes.</strong> We will inform you in good time before a
-              change to the price or to the limits of your paid plan takes effect. A change applies
-              from your next billing period at the earliest, and you can cancel before it takes
-              effect.
-            </li>
-            <li>
-              <strong>Right of withdrawal.</strong> If you are a consumer, you generally have the
-              right to withdraw from the purchase of a paid plan within 14 days without giving
-              reasons. To do so, send us a clear statement, for example by email to{" "}
-              <ContactEmail email={legal.contactEmail} />. Because the paid plan starts immediately
-              at your request, you owe a proportionate amount for the time it was available to you
-              until your withdrawal.
-            </li>
-          </ul>
+          <p>
+            The purchase of a paid plan is governed by our{" "}
+            <Link href="/subscription-terms">Subscription Terms</Link>. They set out how the
+            contract is concluded, prices and payment, renewal and cancellation, changes to prices
+            and limits, and the right of withdrawal for consumers.
+          </p>
         </>
       ) : null}
 
@@ -315,9 +285,9 @@ export default function TermsPage() {
       <h2>15. Final provisions</h2>
       <p>
         If a provision of these Terms is or becomes invalid, the remaining provisions stay in
-        effect. These Terms, together with the Acceptable Use Policy, are the entire agreement
-        between you and us regarding the Service. You may not transfer your rights under these
-        Terms without our consent.
+        effect. These Terms, together with the Acceptable Use Policy{paidPlans ? " and, if you buy a paid plan, the Subscription Terms" : ""}, are the entire
+        agreement between you and us regarding the Service. You may not transfer your rights under
+        these Terms without our consent.
       </p>
 
       <h2>16. Contact</h2>

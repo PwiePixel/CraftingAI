@@ -38,6 +38,11 @@ export function publicPlan(
     : { id: "free", name: settings.billing.freePlan.name, paid: false };
 }
 
+/** Whether at least one paid plan can currently be bought. */
+export function hasPaidPlans(settings: Settings): boolean {
+  return settings.billing.plans.some((plan) => plan.enabled);
+}
+
 /** A plan as shown on the plan page and on the home page. */
 export interface PlanCard {
   id: string;
