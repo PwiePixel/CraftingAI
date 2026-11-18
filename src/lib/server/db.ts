@@ -98,6 +98,37 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX audit_created ON audit_log(created_at DESC);
     `,
   },
+  {
+    id: 2,
+    name: "plans, subscriptions, profile pictures",
+    sql: `
+      ALTER TABLE users ADD COLUMN plan_id TEXT NOT NULL DEFAULT 'free';
+      ALTER TABLE users ADD COLUMN plan_source TEXT NOT NULL DEFAULT 'none'
+        CHECK (plan_source IN ('none', 'manual', 'stripe'));
+      ALTER TABLE users ADD COLUMN plan_status TEXT;
+      ALTER TABLE users ADD COLUMN plan_period_end INTEGER;
+      ALTER TABLE users ADD COLUMN plan_cancel_at_period_end INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN stripe_customer_id TEXT;
+      ALTER TABLE users ADD COLUMN stripe_subscription_id TEXT;
+      ALTER TABLE users ADD COLUMN avatar_version INTEGER;
+      CREATE INDEX users_stripe_customer ON users(stripe_customer_id);
+      CREATE INDEX users_stripe_subscription ON users(stripe_subscription_id);
+
+      CREATE TABLE avatars (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        data BLOB NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      -- Webhook deliveries that were already processed (the provider retries).
+      CREATE TABLE payment_events (
+        id TEXT PRIMARY KEY,
+        received_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX usage_user_time ON usage_events(user_id, kind, tier, created_at);
+    `,
+  },
 ];
 
 function migrate(db: Database.Database): void {
@@ -133,6 +164,7 @@ function prune(db: Database.Database): void {
     db.prepare("DELETE FROM usage_events WHERE created_at < ?").run(
       now - USAGE_RETENTION_DAYS * DAY_MS,
     );
+    db.prepare("DELETE FROM payment_events WHERE received_at < ?").run(now - 30 * DAY_MS);
   } catch (error) {
     console.error("[db] retention clean-up failed:", error);
   }

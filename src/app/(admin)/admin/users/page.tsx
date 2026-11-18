@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/admin/page-header";
 import { UsersManager } from "@/components/admin/users-manager";
 import { Button, Input, buttonClass } from "@/components/ui";
 import { requireAdmin } from "@/lib/server/auth";
+import { getSettings } from "@/lib/server/settings";
 import { listAdminUsers } from "@/lib/server/stats";
 import { formatInt } from "@/lib/shared/format";
 
@@ -18,6 +19,7 @@ const first = (value: string | string[] | undefined) => (Array.isArray(value) ? 
 
 export default async function AdminUsersPage({ searchParams }: Props) {
   const { user } = await requireAdmin();
+  const settings = getSettings();
   const params = await searchParams;
   const query = (first(params.q) ?? "").trim().slice(0, 100);
   const page = Math.max(1, Math.floor(Number(first(params.page)) || 1));
@@ -45,7 +47,14 @@ export default async function AdminUsersPage({ searchParams }: Props) {
         }
       />
 
-      <UsersManager rows={rows} currentUserId={user.id} />
+      <UsersManager
+        rows={rows}
+        currentUserId={user.id}
+        plans={[
+          { id: "free", name: settings.billing.freePlan.name },
+          ...settings.billing.plans.map((plan) => ({ id: plan.id, name: plan.name })),
+        ]}
+      />
 
       {pages > 1 ? (
         <nav aria-label="Pagination" className="mt-4 flex items-center justify-between text-sm text-fg-muted">

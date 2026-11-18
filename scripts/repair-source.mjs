@@ -25,7 +25,10 @@ const REQUIRED_SETTINGS = [
   ["baseModelSources", "z.string().trim().max(120)", '"Meta and OpenAI"'],
   ["inDevelopment", "z.boolean()", "true"],
   ["maxDailyRegistrations", "z.number().int().min(0).max(1_000_000)", "100"],
+  ["billing", "billingSettingsSchema", "DEFAULT_BILLING"],
 ];
+
+const BILLING_IMPORT = 'import { billingSettingsSchema, DEFAULT_BILLING } from "./billing-schema";\n';
 
 const HOSTING_DECLARATION = `export const MODEL_HOSTING = ["third-party", "self-hosted"] as const;
 export type ModelHosting = (typeof MODEL_HOSTING)[number];
@@ -33,28 +36,59 @@ export type ModelHosting = (typeof MODEL_HOSTING)[number];
 `;
 
 /**
+ * Returns a copy of the source in which comments and the contents of string
+ * literals are blanked out. Every character keeps its position, so braces and
+ * keys can be located without being fooled by text such as "provider's API".
+ */
+function mask(source) {
+  const out = source.split("");
+  let index = 0;
+  const blank = (from, to) => {
+    for (let position = from; position < to; position += 1) {
+      if (out[position] !== "\n") out[position] = " ";
+    }
+  };
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+    if (char === "/" && next === "/") {
+      const end = source.indexOf("\n", index);
+      const stop = end === -1 ? source.length : end;
+      blank(index, stop);
+      index = stop;
+    } else if (char === "/" && next === "*") {
+      const end = source.indexOf("*/", index + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      blank(index, stop);
+      index = stop;
+    } else if (char === '"' || char === "'" || char === "`") {
+      let end = index + 1;
+      while (end < source.length && source[end] !== char) end += source[end] === "\\" ? 2 : 1;
+      blank(index + 1, Math.min(end, source.length));
+      index = end + 1;
+    } else {
+      index += 1;
+    }
+  }
+  return out.join("");
+}
+
+/**
  * Returns the body of the object literal that follows `anchor` (the text
- * between its braces) together with the position right after the opening
- * brace, or null when the anchor is not present.
+ * between its braces, with comments and strings blanked out) together with
+ * the position right after the opening brace, or null when it is not there.
  */
 function objectAfter(source, anchor) {
-  const match = anchor.exec(source);
+  const masked = mask(source);
+  const match = anchor.exec(masked);
   if (!match) return null;
   const open = match.index + match[0].length; // just behind the "{"
   let depth = 1;
-  let quote = null;
-  for (let index = open; index < source.length; index += 1) {
-    const char = source[index];
-    if (quote) {
-      if (char === "\\") index += 1;
-      else if (char === quote) quote = null;
-    } else if (char === '"' || char === "'" || char === "`") {
-      quote = char;
-    } else if (char === "{") {
-      depth += 1;
-    } else if (char === "}") {
+  for (let index = open; index < masked.length; index += 1) {
+    if (masked[index] === "{") depth += 1;
+    else if (masked[index] === "}") {
       depth -= 1;
-      if (depth === 0) return { open, body: source.slice(open, index) };
+      if (depth === 0) return { open, body: masked.slice(open, index) };
     }
   }
   return null;
@@ -63,19 +97,11 @@ function objectAfter(source, anchor) {
 /** Only keys of the object itself count, not keys of nested objects. */
 function hasTopLevelKey(body, name) {
   let depth = 0;
-  let quote = null;
   for (let index = 0; index < body.length; index += 1) {
     const char = body[index];
-    if (quote) {
-      if (char === "\\") index += 1;
-      else if (char === quote) quote = null;
-    } else if (char === '"' || char === "'" || char === "`") {
-      quote = char;
-    } else if (char === "{" || char === "(" || char === "[") {
-      depth += 1;
-    } else if (char === "}" || char === ")" || char === "]") {
-      depth -= 1;
-    } else if (depth === 0 && body.startsWith(name, index) && /^\s*:/.test(body.slice(index + name.length))) {
+    if (char === "{" || char === "(" || char === "[") depth += 1;
+    else if (char === "}" || char === ")" || char === "]") depth -= 1;
+    else if (depth === 0 && body.startsWith(name, index) && /^\s*:/.test(body.slice(index + name.length))) {
       const before = index === 0 ? " " : body[index - 1];
       if (!/[\w$]/.test(before)) return true;
     }
@@ -135,6 +161,13 @@ export function repairSettingsSchema(source) {
       "export type ModelHosting = (typeof MODEL_HOSTING)[number];\n\n" +
       result.slice(anchor.index);
     added.add("ModelHosting");
+  }
+
+  // The billing settings live in their own file and have to be imported.
+  if (/\bbillingSettingsSchema\b/.test(result) && !/from\s+"\.\/billing-schema"/.test(result)) {
+    const firstImport = /^import\s/m.exec(result);
+    const position = firstImport ? firstImport.index : 0;
+    result = result.slice(0, position) + BILLING_IMPORT + result.slice(position);
   }
 
   return { source: result, added: [...added] };

@@ -9,14 +9,25 @@ import type { PublicTier, TierId } from "@/lib/shared/types";
 const tierIcons: Record<TierId, typeof Zap> = { lite: Zap, pro: Sparkles, ultra: Gem };
 
 export function remainingMessages(tier: PublicTier): number | null {
-  return tier.limit === null ? null : Math.max(0, tier.limit - tier.used);
+  return tier.remaining;
 }
 
-function allowance(tier: PublicTier): string {
-  const remaining = remainingMessages(tier);
-  if (remaining === null) return "Unlimited";
-  if (remaining === 0) return "Daily limit reached";
-  return `${remaining} of ${tier.limit} left today`;
+const windowNames = { day: "today", fiveHour: "in this 5-hour window", week: "this week" } as const;
+
+/** One line that says how much room is left on a model, or why there is none. */
+export function allowanceText(tier: PublicTier): string {
+  if (!tier.included) return "Not part of your plan";
+  if (tier.remaining === null) return "Unlimited";
+  if (tier.blockedBy) {
+    return tier.blockedBy.kind === "day"
+      ? "Daily limit reached"
+      : tier.blockedBy.kind === "fiveHour"
+        ? "5-hour limit reached"
+        : "Weekly limit reached";
+  }
+  // The tightest limit decides how many messages are left.
+  const tightest = [...tier.windows].sort((a, b) => a.limit - a.used - (b.limit - b.used))[0];
+  return tightest ? `${tier.remaining} left ${windowNames[tightest.kind]}` : `${tier.remaining} left`;
 }
 
 export function ModelPicker({
@@ -90,7 +101,7 @@ export function ModelPicker({
                       exhausted ? "text-warning" : "text-fg-subtle",
                     )}
                   >
-                    {allowance(tier)}
+                    {allowanceText(tier)}
                   </span>
                 </span>
                 {selected ? <Check size={16} className="mt-1 shrink-0 text-accent" /> : null}

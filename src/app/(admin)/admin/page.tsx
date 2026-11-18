@@ -68,7 +68,7 @@ export default async function AdminOverviewPage() {
         <StatTile
           label="Registered users"
           value={formatInt(stats.users.total)}
-          detail={`${formatInt(stats.users.newLast7Days)} new in the last 7 days`}
+          detail={`${formatInt(stats.users.newLast7Days)} new in the last 7 days · ${formatInt(stats.users.onPaidPlans)} on paid plans`}
         />
         <StatTile
           label="Active users today"

@@ -10,6 +10,7 @@ export default function TermsPage() {
   const { siteName, assistantName, legal } = publicSite(settings);
   const operator = legal.operatorName;
   const selfHosted = settings.modelHosting === "self-hosted";
+  const hasPaidPlans = settings.billing.plans.some((plan) => plan.enabled);
   const sources = settings.baseModelSources;
 
   return (
@@ -62,13 +63,14 @@ export default function TermsPage() {
       </p>
       <ul>
         <li>
-          <strong>Free of charge.</strong> Unless we expressly state otherwise, the Service is
-          provided free of charge. Because it is free, it is offered within the limits of our
-          technical and financial capacity.
+          <strong>Free plan.</strong> The basic use of the Service is free of charge. Because it is
+          free, it is offered within the limits of our technical and financial capacity.
         </li>
         <li>
           <strong>Usage limits.</strong> We apply limits, such as a maximum number of messages per
-          day and per model, and limits on message length. We may change these limits at any time.
+          model within a day, within five hours or within a week, and limits on message length. The
+          limits that apply to you are shown in your account settings. We may change the limits of
+          the free plan at any time.
         </li>
         <li>
           <strong>Availability.</strong> We aim to keep the Service available but do not guarantee
@@ -81,6 +83,55 @@ export default function TermsPage() {
           changes in advance.
         </li>
       </ul>
+
+      {hasPaidPlans ? (
+        <>
+          <h3>Paid plans</h3>
+          <p>
+            In addition to the free plan we offer paid plans with higher limits. The plans, their
+            limits and their prices are shown on the plan page in your account settings before you
+            order.
+          </p>
+          <ul>
+            <li>
+              <strong>Subscription and renewal.</strong> A paid plan is a subscription that is billed
+              in advance for one month at a time and renews automatically for another month until it
+              is cancelled.
+            </li>
+            <li>
+              <strong>Payment.</strong> Payments are handled by our payment service provider, Stripe.
+              You authorise us to charge the price of your plan to the payment method you provide for
+              every billing period. If a payment fails, we may suspend the paid plan until payment is
+              made.
+            </li>
+            <li>
+              <strong>Cancellation.</strong> You can cancel at any time in your account settings.
+              The cancellation takes effect at the end of the billing period you have already paid
+              for; until then you keep the paid plan. Payments for a period that has already started
+              are not refunded, unless the law requires it.
+            </li>
+            <li>
+              <strong>Changing plans.</strong> If you switch to another paid plan, the new plan
+              starts immediately and the unused part of the previous plan is credited to your
+              billing account.
+            </li>
+            <li>
+              <strong>Price and limit changes.</strong> We will inform you in good time before a
+              change to the price or to the limits of your paid plan takes effect. A change applies
+              from your next billing period at the earliest, and you can cancel before it takes
+              effect.
+            </li>
+            <li>
+              <strong>Right of withdrawal.</strong> If you are a consumer, you generally have the
+              right to withdraw from the purchase of a paid plan within 14 days without giving
+              reasons. To do so, send us a clear statement, for example by email to{" "}
+              <ContactEmail email={legal.contactEmail} />. Because the paid plan starts immediately
+              at your request, you owe a proportionate amount for the time it was available to you
+              until your withdrawal.
+            </li>
+          </ul>
+        </>
+      ) : null}
 
       <h2>4. AI-generated content</h2>
       <p>
@@ -202,7 +253,7 @@ export default function TermsPage() {
 
       <h2>10. Disclaimer of warranties</h2>
       <p>
-        The Service is provided free of charge, &quot;as is&quot; and &quot;as available&quot;. To
+        The Service is provided &quot;as is&quot; and &quot;as available&quot;. To
         the extent permitted by law, we make no promises about the accuracy, reliability,
         availability or fitness for a particular purpose of the Service or of any response. Rights
         that cannot be excluded under mandatory law, in particular mandatory consumer rights,

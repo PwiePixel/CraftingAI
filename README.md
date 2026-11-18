@@ -9,10 +9,16 @@ dashboard for you, and a one-command installer that sets up HTTPS on your own do
   Markdown with code highlighting, tables and maths, stop and regenerate, light and dark theme,
   desktop and mobile layout.
 - **Three model tiers** under your own names (by default *Lishia Lite*, *Lishia Pro* and
-  *Lishia Ultra*). Users switch between them in the chat; each has its own daily message limit.
-- **Admin dashboard**: usage and spend charts, user management (roles, suspension, per-user
-  limits, password reset), model and limit configuration, branding, legal details, audit log.
-- **Cost control**: per-user daily limits per tier, a global daily spending cap, bounded reply
+  *Lishia Ultra*). Users switch between them in the chat; each has its own message limit.
+- **Plans**: a free plan with daily limits and, optionally, paid monthly plans with a 5-hour
+  and a weekly limit per model. You define names, prices and limits in the admin dashboard;
+  payment runs through Stripe (subscriptions, cancellation, invoices).
+- **Account settings** in sections: profile with an uploadable profile picture, plan, usage,
+  appearance, security and data export.
+- **Admin dashboard**: usage and spend charts, user management (roles, suspension, plans,
+  per-user limits, password reset), model and limit configuration, plans and prices, branding,
+  legal details, audit log.
+- **Cost control**: per-user limits per tier, a global daily spending cap, bounded reply
   length and conversation memory, prompt caching.
 - **Legal pages** in English: Terms of Use, Privacy Policy, Acceptable Use Policy, Legal Notice.
 - **White-label**: the public site never names the model vendor. The assistant is presented
@@ -79,14 +85,15 @@ When it finishes, open `https://your-domain/` and sign in with the administrator
 1. **Admin → Settings**: enter your legal details (operator name, postal address, contact email,
    governing law). They appear in the Terms of Use, Privacy Policy and Legal Notice.
 2. **Admin → Models & limits**: review the daily limits per tier and the daily budget.
-3. Have the legal texts checked by a lawyer before you open the site to the public. They are
+3. **Admin → Plans** (optional): set up paid plans, see [Plans and payments](#plans-and-payments).
+4. Have the legal texts checked by a lawyer before you open the site to the public. They are
    carefully written templates, not legal advice.
 
 ---
 
 ## Models and limits
 
-| Tier | Default name | Default upstream model | Messages per user per day |
+| Tier | Default name | Default upstream model | Free plan: messages per user per day |
 | --- | --- | --- | --- |
 | Basic (default) | Lishia Lite | `claude-haiku-5-5` | 50 |
 | Medium | Lishia Pro | `claude-sonnet-5-5` | 10 |
@@ -99,8 +106,9 @@ and description.
 
 How spending is kept under control:
 
-- **Per-user limits** per tier and day (UTC). A per-user multiplier (Admin → Users → Manage)
-  raises or lowers them for individual accounts; administrators are not limited.
+- **Per-user limits** per tier: per day (UTC) on the free plan, per 5 hours and per week on
+  paid plans. A per-user multiplier (Admin → Users → Manage) raises or lowers them for
+  individual accounts; administrators are not limited.
 - **Messages are booked before the AI is called.** A message counts against the allowance as
   soon as it is accepted, whether or not the reply is cancelled, and its worst-case cost is held
   against the budget until the real numbers arrive. Only requests the provider never worked on
@@ -117,6 +125,71 @@ How spending is kept under control:
 
 The spend shown in the dashboard is an estimate based on the configured prices; your provider's
 console shows the authoritative figures.
+
+---
+
+## Plans and payments
+
+Every account starts on the free plan with the daily limits above. Under **Admin → Plans** you
+can offer up to six paid plans. For each one you set the name, description, monthly price,
+feature list and, per model tier, two limits:
+
+- a **5-hour limit**: messages within any five hours, and
+- a **weekly limit**: messages within any seven days.
+
+Both are rolling windows: a message stops counting exactly five hours (or seven days) after it
+was sent. A limit of `0` leaves that model out of the plan. Users see their current usage and
+the time at which the next message becomes available under **Settings → Usage**.
+
+The installation ships with two example plans, *Plus* and *Pro*. Treat their prices and limits
+as placeholders and check them against what the messages cost you.
+
+**Prices live in your database, not in Stripe.** There are no products or prices to create in
+the Stripe dashboard. When somebody subscribes, the server reads the plan from its own settings
+and passes the amount to Stripe; nothing a browser sends can influence the price. A changed
+price applies to new subscriptions; existing subscribers keep the price they signed up for.
+
+### Connecting Stripe
+
+1. In the [Stripe dashboard](https://dashboard.stripe.com) create a **secret key** (or a
+   restricted key with write access to Checkout Sessions, Customers, Subscriptions and
+   Customer portal).
+2. Add a **webhook endpoint** with the address `https://your-domain/api/stripe/webhook` and the
+   events `checkout.session.completed`, `customer.subscription.created`,
+   `customer.subscription.updated` and `customer.subscription.deleted`. Copy its signing secret
+   (`whsec_…`).
+3. Enter both on the server (input is hidden; the service restarts afterwards):
+
+   ```bash
+   sudo bash install.sh --stripe
+   ```
+
+4. Activate the **customer portal** once in Stripe (Settings → Billing → Customer portal). Users
+   reach it through *Manage billing* in Settings → Plan.
+5. Open **Admin → Plans**: the checklist at the top shows whether both keys were found.
+
+Start with a test-mode key (`sk_test_…`) and Stripe's test cards, then run the command again
+with the live key and the live webhook secret.
+
+How it behaves:
+
+- **Subscribing**: Settings → Plan → *Upgrade* leads to Stripe's payment page. The plan becomes
+  active when Stripe confirms the payment through the webhook, usually within seconds.
+- **Cancelling**: users cancel in Settings → Plan. The plan stays usable until the end of the
+  paid period and then falls back to the free plan. They can undo the cancellation until then.
+- **Switching plans** starts a new subscription; the previous one is ended and Stripe credits
+  the unused time.
+- **Failed payments**: Stripe retries; the plan stays usable in the meantime and ends when
+  Stripe gives up.
+- **Deleting an account** ends its subscription immediately.
+- **Plans without payment**: under Admin → Users → Manage you can put any account on a paid
+  plan by hand, for team members or testers. This works without Stripe.
+- A plan that still has users on it cannot be removed; disable it instead, which hides it from
+  new subscribers and leaves the existing ones untouched.
+
+Before you charge money: selling subscriptions to consumers comes with legal duties that depend
+on your country (withdrawal rights, cancellation, price display, taxes, invoices). The Terms of
+Use contain a general section on paid plans; have it and your Stripe tax settings checked.
 
 ---
 
@@ -139,6 +212,11 @@ console shows the authoritative figures.
   with bounded concurrency. One reply at a time per user.
 - **Bounded work per request**: long conversations are loaded and shown page by page, Markdown is
   rendered in the browser rather than on the server, and exports are streamed.
+- **Uploads**: profile pictures are limited in size, decoded on the server and stored again as
+  a small WebP image, so metadata and unexpected file content are never kept or served.
+- **Payments**: card details are entered on Stripe's pages and never reach this server. The
+  webhook only accepts requests carrying a valid Stripe signature, and each event is applied
+  once. Prices are always taken from the server's own settings.
 - **Privacy**: IP addresses are stored only as keyed hashes. Message content is never written
   to logs. The admin dashboard shows usage numbers, not conversations. Users can export their
   data and delete their chats or their account.
@@ -223,6 +301,9 @@ Things to know about automatic updates:
 **Change the domain, API key or other answers:** `sudo bash install.sh --reconfigure`, or edit
 `/etc/lishia/lishia.env` and restart the service.
 
+**Set or replace the Stripe keys:** `sudo bash install.sh --stripe` (see
+[Plans and payments](#plans-and-payments)). `--reconfigure` keeps them.
+
 **Reset an administrator password** on the server (prints a generated password):
 
 ```bash
@@ -240,14 +321,15 @@ next to it), and start the service again.
 (`DOMAIN`, `ACME_EMAIL`, `ANTHROPIC_API_KEY`, `SITE_NAME`, `ASSISTANT_NAME`, `ADMIN_EMAIL`,
 `ADMIN_PASSWORD`, `CONTACT_EMAIL`, `DAILY_BUDGET_USD`, `SETUP_FIREWALL=yes|no`,
 `AUTO_UPDATE=yes|no`) together with
-`ASSUME_YES=1`.
+`ASSUME_YES=1`. The same works for `--stripe` with `STRIPE_SECRET_KEY` and
+`STRIPE_WEBHOOK_SECRET`.
 
 ### File locations
 
 | Path | Contents |
 | --- | --- |
 | `/opt/lishia/current` | Application code and build of the live release (read-only for the service) |
-| `/var/lib/lishia` | Database and backups |
+| `/var/lib/lishia` | Database (including profile pictures) and backups |
 | `/etc/lishia/lishia.env` | Configuration and secrets |
 | `/etc/caddy/Caddyfile` | Web server and HTTPS configuration |
 
@@ -276,6 +358,14 @@ app at it (see `.env.example`):
 npm run mock:upstream
 ```
 
+Paid plans can be tried the same way without a Stripe account: the bundled stand-in shows a
+payment page with a single button and sends signed webhooks like the real service (see
+`.env.example` for the three variables to set).
+
+```bash
+npm run mock:stripe
+```
+
 Create a local administrator:
 
 ```bash
@@ -293,15 +383,15 @@ npm run lint && npm run typecheck && npm test
 ```
 install.sh                 Server installer and updater (Node.js, Caddy, systemd, firewall, backups)
 installer.sh               Alias for install.sh
-scripts/                   Admin command line, database backup, source repair, mock AI provider
+scripts/                   Admin command line, database backup, source repair, mock AI provider, mock Stripe
 public/logo.webp           Logo (also src/app/icon.png and apple-icon.png for browser and phone icons)
 src/proxy.ts               Per-request Content-Security-Policy
 src/app/(auth)             Sign-in and registration
-src/app/(app)              Chat and account settings
+src/app/(app)              Chat and account settings (profile, plan, usage, appearance, security, data)
 src/app/(admin)            Admin dashboard
 src/app/(legal)            Terms of Use, Privacy Policy, Acceptable Use Policy, Legal Notice
-src/app/api                JSON API and the streaming chat endpoint
-src/lib/server             Database, authentication, sessions, limits, AI client
+src/app/api                JSON API, the streaming chat endpoint, billing and the Stripe webhook
+src/lib/server             Database, authentication, sessions, limits, plans, billing, AI client
 src/lib/shared             Types and validation shared by server and browser
 src/components             User interface
 tests/                     Unit tests

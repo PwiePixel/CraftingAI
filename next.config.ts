@@ -26,7 +26,7 @@ const nextConfig: NextConfig = {
   // Compression is done by the reverse proxy; leaving it off here keeps
   // server-sent events from being buffered.
   compress: false,
-  serverExternalPackages: ["better-sqlite3", "@node-rs/argon2"],
+  serverExternalPackages: ["better-sqlite3", "@node-rs/argon2", "sharp"],
   turbopack: {
     rules: {
       "*.css": {
@@ -45,9 +45,14 @@ const nextConfig: NextConfig = {
             key: "Content-Security-Policy",
             value: "default-src 'none'; frame-ancestors 'none'",
           },
-          { key: "Cache-Control", value: "no-store" },
           { key: "X-Robots-Tag", value: "noindex" },
         ],
+      },
+      {
+        // Everything except the profile picture, which is addressed by version
+        // and may stay in the browser's private cache.
+        source: "/api/:path((?!me/avatar$).*)",
+        headers: [{ key: "Cache-Control", value: "no-store" }],
       },
     ];
   },

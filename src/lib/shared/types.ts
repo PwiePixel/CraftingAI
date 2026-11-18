@@ -16,6 +16,8 @@ export interface SessionUser {
   email: string;
   name: string;
   role: Role;
+  /** Changes whenever the profile picture changes; null when there is none. */
+  avatarVersion: number | null;
 }
 
 export interface ChatMessage {
@@ -35,15 +37,37 @@ export interface ConversationSummary {
   updatedAt: number;
 }
 
+export type UsageWindowKind = "day" | "fiveHour" | "week";
+
+/** One limit that applies to a model: how much of it is used and when room frees up. */
+export interface UsageWindow {
+  kind: UsageWindowKind;
+  limit: number;
+  used: number;
+  /** When the next message becomes available (if the limit is reached) or the window starts to clear. */
+  resetsAt: number | null;
+}
+
 /** What a signed-in user may know about a model tier. Never includes the upstream model. */
 export interface PublicTier {
   id: TierId;
   label: string;
   description: string;
   enabled: boolean;
-  /** Messages allowed per day; `null` means unlimited. */
-  limit: number | null;
-  used: number;
+  /** False when the user's plan does not contain this model. */
+  included: boolean;
+  /** Messages that can be sent right now; `null` means unlimited. */
+  remaining: number | null;
+  /** The limit that is currently exhausted, if any. */
+  blockedBy: UsageWindow | null;
+  windows: UsageWindow[];
+}
+
+/** The plan a user is on, as shown in the interface. */
+export interface PublicPlan {
+  id: string;
+  name: string;
+  paid: boolean;
 }
 
 export interface PublicLegal {

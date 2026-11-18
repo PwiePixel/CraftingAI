@@ -11,6 +11,15 @@ export interface UserRow {
   role: Role;
   status: UserStatus;
   limit_multiplier: number;
+  plan_id: string;
+  /** How the plan was assigned: by an administrator or through a subscription. */
+  plan_source: "none" | "manual" | "stripe";
+  plan_status: string | null;
+  plan_period_end: number | null;
+  plan_cancel_at_period_end: number;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  avatar_version: number | null;
   terms_version: string | null;
   terms_accepted_at: number | null;
   last_login_at: number | null;
@@ -23,7 +32,13 @@ export function normalizeEmail(email: string): string {
 }
 
 export function toSessionUser(row: UserRow): SessionUser {
-  return { id: row.id, email: row.email, name: row.name, role: row.role };
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    role: row.role,
+    avatarVersion: row.avatar_version,
+  };
 }
 
 export function findUserByEmail(email: string): UserRow | undefined {
@@ -66,7 +81,24 @@ export function createUser(input: {
 
 export function updateUser(
   id: string,
-  patch: Partial<Pick<UserRow, "name" | "role" | "status" | "limit_multiplier" | "password_hash">>,
+  patch: Partial<
+    Pick<
+      UserRow,
+      | "name"
+      | "role"
+      | "status"
+      | "limit_multiplier"
+      | "password_hash"
+      | "plan_id"
+      | "plan_source"
+      | "plan_status"
+      | "plan_period_end"
+      | "plan_cancel_at_period_end"
+      | "stripe_customer_id"
+      | "stripe_subscription_id"
+      | "avatar_version"
+    >
+  >,
 ): void {
   const fields: string[] = [];
   const values: unknown[] = [];
@@ -102,5 +134,24 @@ export function countUsersCreatedSince(timestamp: number): number {
   const row = getDb()
     .prepare("SELECT COUNT(*) AS n FROM users WHERE created_at >= ?")
     .get(timestamp) as { n: number };
+  return row.n;
+}
+
+export function findUserByStripeSubscription(subscriptionId: string): UserRow | undefined {
+  return getDb()
+    .prepare("SELECT * FROM users WHERE stripe_subscription_id = ?")
+    .get(subscriptionId) as UserRow | undefined;
+}
+
+export function findUserByStripeCustomer(customerId: string): UserRow | undefined {
+  return getDb().prepare("SELECT * FROM users WHERE stripe_customer_id = ?").get(customerId) as
+    | UserRow
+    | undefined;
+}
+
+export function countUsersOnPlan(planId: string): number {
+  const row = getDb().prepare("SELECT COUNT(*) AS n FROM users WHERE plan_id = ?").get(planId) as {
+    n: number;
+  };
   return row.n;
 }

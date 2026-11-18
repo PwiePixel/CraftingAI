@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { apiAdmin } from "@/lib/server/auth";
 import { audit } from "@/lib/server/audit";
+import { endSubscriptionNow } from "@/lib/server/billing";
 import { ApiError, clientIp, json, readJson, route } from "@/lib/server/http";
+import { activePaidPlan } from "@/lib/server/plans";
 import { revokeUserSessions } from "@/lib/server/sessions";
+import { getSettings } from "@/lib/server/settings";
 import { countAdmins, deleteUser, findUserById, updateUser, type UserRow } from "@/lib/server/users";
 
 type Context = { params: Promise<{ id: string }> };
@@ -12,6 +15,8 @@ const patchSchema = z
     role: z.enum(["user", "admin"]).optional(),
     status: z.enum(["active", "suspended"]).optional(),
     limitMultiplier: z.number().min(0).max(1000).optional(),
+    /** Assigns a plan without payment ("free" removes it again). */
+    planId: z.string().min(1).max(40).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, "Nothing to update.");
 
@@ -44,6 +49,27 @@ export const PATCH = route<Context>(async (request, { params }) => {
     assertNotLastAdmin(target);
   }
 
+  if (input.planId !== undefined && input.planId !== target.plan_id) {
+    const settings = getSettings();
+    if (input.planId !== "free" && !settings.billing.plans.some((plan) => plan.id === input.planId)) {
+      throw new ApiError(400, "invalid_request", "This plan does not exist.");
+    }
+    if (target.plan_source === "stripe" && activePaidPlan(target, settings)) {
+      throw new ApiError(
+        409,
+        "has_subscription",
+        "This user pays for a subscription. It has to be cancelled before a plan can be assigned by hand.",
+      );
+    }
+    updateUser(target.id, {
+      plan_id: input.planId,
+      plan_source: input.planId === "free" ? "none" : "manual",
+      plan_status: null,
+      plan_period_end: null,
+      plan_cancel_at_period_end: 0,
+    });
+  }
+
   updateUser(target.id, {
     role: input.role,
     status: input.status,
@@ -70,6 +96,7 @@ export const DELETE = route<Context>(async (request, { params }) => {
     throw new ApiError(400, "invalid_request", "Use the account settings to delete your own account.");
   }
   assertNotLastAdmin(target);
+  await endSubscriptionNow(target);
   deleteUser(target.id);
   audit({
     action: "admin.user_delete",

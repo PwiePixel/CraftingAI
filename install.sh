@@ -6,6 +6,7 @@
 #   sudo bash install.sh --update       fetch the newest version from Git and deploy it
 #   sudo bash install.sh --update --force   rebuild even when nothing has changed
 #   sudo bash install.sh --reconfigure  ask all questions again
+#   sudo bash install.sh --stripe       enter or change the Stripe keys for paid plans
 #
 # After the installation the same update is available as:  sudo lishia-update
 #
@@ -47,15 +48,17 @@ UPDATE_CMD="/usr/local/sbin/${APP_NAME}-update"
 DEPLOYED_FILE="${CONF_DIR}/deployed-commit"
 
 RECONFIGURE=0
+STRIPE_ONLY=0
 UPDATE_ONLY=0
 FORCE=0
 for arg in "$@"; do
   case "$arg" in
     --reconfigure) RECONFIGURE=1 ;;
     --update) UPDATE_ONLY=1 ;;
+    --stripe) STRIPE_ONLY=1 ;;
     --force) FORCE=1 ;;
     -h | --help)
-      sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -224,6 +227,45 @@ if [[ "$UPDATE_ONLY" -eq 1 ]]; then
   fi
 fi
 
+# ----------------------------------------------------------------- stripe ----
+
+# "--stripe" only stores the payment keys and restarts the service.
+if [[ "$STRIPE_ONLY" -eq 1 ]]; then
+  [[ -f "$ENV_FILE" ]] || die "lishia.bond is not installed on this server yet. Run:  sudo bash install.sh"
+  step "Stripe keys for paid plans"
+  info "Both values come from the Stripe dashboard. Input is hidden."
+  info "Webhook address to register there:  $(sed -n 's/^APP_URL=//p' "$ENV_FILE" | tr -d '"')/api/stripe/webhook"
+  while true; do
+    ask_secret STRIPE_SECRET_KEY "Secret key (starts with sk_ or rk_)"
+    [[ "${STRIPE_SECRET_KEY:-}" =~ ^(sk|rk)_(live|test)_[A-Za-z0-9]{16,}$ ]] && break
+    warn "That does not look like a Stripe secret key."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid or missing STRIPE_SECRET_KEY."
+    STRIPE_SECRET_KEY=""
+  done
+  while true; do
+    ask_secret STRIPE_WEBHOOK_SECRET "Webhook signing secret (starts with whsec_)"
+    [[ "${STRIPE_WEBHOOK_SECRET:-}" =~ ^whsec_[A-Za-z0-9]{16,}$ ]] && break
+    warn "That does not look like a webhook signing secret."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid or missing STRIPE_WEBHOOK_SECRET."
+    STRIPE_WEBHOOK_SECRET=""
+  done
+
+  umask 077
+  { grep -v -E '^(STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET)=' "$ENV_FILE" || true
+    printf 'STRIPE_SECRET_KEY=%s\n' "$STRIPE_SECRET_KEY"
+    printf 'STRIPE_WEBHOOK_SECRET=%s\n' "$STRIPE_WEBHOOK_SECRET"
+  } >"${ENV_FILE}.new"
+  umask 022
+  chown root:"$APP_USER" "${ENV_FILE}.new"
+  chmod 0640 "${ENV_FILE}.new"
+  mv -f "${ENV_FILE}.new" "$ENV_FILE"
+  systemctl restart "$APP_NAME"
+  ok "Keys saved and service restarted"
+  [[ "$STRIPE_SECRET_KEY" == *_test_* ]] && info "This is a test-mode key: no real money is charged."
+  info "Check the result under Admin -> Plans."
+  exit 0
+fi
+
 # Private scratch space: nothing sensitive is ever placed in a shared directory.
 WORK_DIR="$(mktemp -d)"
 chmod 700 "$WORK_DIR"
@@ -247,9 +289,12 @@ if [[ "$UPDATE" -eq 0 ]]; then
   # Keep secrets from a previous installation when reconfiguring.
   OLD_SECRET=""
   OLD_EFFECTIVE_DATE=""
+  OLD_STRIPE_LINES=""
   if [[ -f "$ENV_FILE" ]]; then
     OLD_SECRET="$(sed -n 's/^APP_SECRET=//p' "$ENV_FILE" | tr -d '"')"
     OLD_EFFECTIVE_DATE="$(sed -n 's/^LEGAL_EFFECTIVE_DATE=//p' "$ENV_FILE" | tr -d '"')"
+    # Payment keys entered with --stripe survive a reconfiguration.
+    OLD_STRIPE_LINES="$(grep -E '^(STRIPE_SECRET_KEY|STRIPE_WEBHOOK_SECRET)=' "$ENV_FILE" || true)"
   fi
 
   while true; do
@@ -503,6 +548,7 @@ if [[ "$UPDATE" -eq 0 ]]; then
     printf 'CONTACT_EMAIL="%s"\n' "$CONTACT_EMAIL"
     printf 'DAILY_BUDGET_USD=%s\n' "$DAILY_BUDGET_USD"
     printf 'LEGAL_EFFECTIVE_DATE=%s\n' "${OLD_EFFECTIVE_DATE:-$(date -u +%F)}"
+    if [[ -n "$OLD_STRIPE_LINES" ]]; then printf '%s\n' "$OLD_STRIPE_LINES"; fi
   } >"${ENV_FILE}.new"
   umask 022
   chown root:"$APP_USER" "${ENV_FILE}.new"

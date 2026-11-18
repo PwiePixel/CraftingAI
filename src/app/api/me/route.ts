@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { apiUser, endSession } from "@/lib/server/auth";
 import { audit } from "@/lib/server/audit";
+import { endSubscriptionNow } from "@/lib/server/billing";
 import { ApiError, clientIp, json, readJson, route } from "@/lib/server/http";
 import { verifyPassword } from "@/lib/server/password";
+import { publicPlan } from "@/lib/server/plans";
 import { rateLimit } from "@/lib/server/ratelimit";
 import { getSettings, publicSite } from "@/lib/server/settings";
 import { publicTiers } from "@/lib/server/usage";
@@ -15,6 +17,7 @@ export const GET = route(async () => {
   const settings = getSettings();
   return json({
     user: toSessionUser(user),
+    plan: publicPlan(user, settings),
     tiers: publicTiers(user, settings),
     site: publicSite(settings),
   });
@@ -49,6 +52,8 @@ export const DELETE = route(async (request) => {
       "You are the only administrator. Promote another administrator before deleting this account.",
     );
   }
+  // A paid subscription ends with the account; if that fails, the account stays.
+  await endSubscriptionNow(user);
   audit({ action: "user.delete_self", actor: user, target: user.id, ip: clientIp(request) });
   deleteUser(user.id);
   await endSession();

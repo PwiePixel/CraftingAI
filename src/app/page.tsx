@@ -18,14 +18,16 @@ import {
 import { Logo, LogoMark } from "@/components/logo";
 import { buttonClass } from "@/components/ui";
 import { getAuth } from "@/lib/server/auth";
+import { planCards } from "@/lib/server/plans";
 import { getSettings } from "@/lib/server/settings";
 import { TIER_IDS, type TierId } from "@/lib/shared/types";
 
 const tierIcons: Record<TierId, typeof Zap> = { lite: Zap, pro: Sparkles, ultra: Gem };
 
-const navigation = [
+const baseNavigation = [
   { href: "#about", label: "About" },
   { href: "#models", label: "Models" },
+  { href: "#plans", label: "Plans" },
   { href: "#privacy", label: "Privacy" },
   { href: "#status", label: "Status" },
   { href: "#faq", label: "FAQ" },
@@ -46,6 +48,9 @@ export default async function HomePage() {
   const settings = getSettings();
   const { siteName, assistantName, inDevelopment, registrationOpen } = settings;
   const selfHosted = settings.modelHosting === "self-hosted";
+  const plans = planCards(settings);
+  const hasPaidPlans = plans.some((plan) => plan.paid);
+  const navigation = baseNavigation.filter((item) => item.href !== "#plans" || hasPaidPlans);
   const sources = settings.baseModelSources;
   const basedOn = sources ? `openly available models from ${sources}` : "openly available models";
   const contactEmail = settings.legal.contactEmail;
@@ -153,8 +158,9 @@ export default async function HomePage() {
   const questions = [
     {
       question: `Is ${siteName} free?`,
-      answer:
-        "Yes. Every account gets a daily number of messages for each model. The limits reset at midnight UTC.",
+      answer: hasPaidPlans
+        ? "Yes, the free plan stays free. Every account gets a daily number of messages for each model, and the limits reset at midnight UTC. If you need more, paid plans with higher limits are available."
+        : "Yes. Every account gets a daily number of messages for each model. The limits reset at midnight UTC.",
     },
     {
       question: "Do I need an account?",
@@ -375,6 +381,48 @@ export default async function HomePage() {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {/* Plans */}
+        {hasPaidPlans ? (
+          <section id="plans" className="scroll-mt-20">
+            <div className="mx-auto w-full max-w-6xl px-5 py-16 lg:py-20">
+              <SectionHeading
+                eyebrow="Plans"
+                title="Start free, upgrade when you need more"
+                text="The free plan covers everyday use. Paid plans raise the limits and let them refresh on a rolling basis instead of once a day. You can cancel at any time."
+              />
+              <div className={`mt-10 grid gap-4 ${plans.length > 2 ? "lg:grid-cols-3" : "sm:grid-cols-2"}`}>
+                {plans.map((plan) => (
+                  <div
+                    key={plan.id}
+                    className={`flex flex-col rounded-2xl border bg-surface p-6 ${plan.highlighted ? "border-accent" : "border-border"}`}
+                  >
+                    <h3 className="text-lg font-semibold">{plan.name}</h3>
+                    <p className="mt-2 text-3xl font-semibold tracking-tight">
+                      {plan.price ?? "Free"}
+                      {plan.price ? <span className="text-sm font-normal text-fg-muted"> / month</span> : null}
+                    </p>
+                    <p className="mt-1 text-sm leading-relaxed text-fg-muted">{plan.description}</p>
+                    <ul className="mt-5 flex flex-1 flex-col gap-2 text-sm">
+                      {[...plan.limits, ...plan.features].map((line) => (
+                        <li key={line} className="flex items-start gap-2">
+                          <Check size={16} className="mt-0.5 shrink-0 text-success" />
+                          <span>{line}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <Link
+                      href={signedIn ? "/settings/plan" : primary.href}
+                      className={`${buttonClass(plan.highlighted ? "primary" : "secondary", "md")} mt-6`}
+                    >
+                      {plan.paid ? `Choose ${plan.name}` : "Start for free"}
+                    </Link>
+                  </div>
+                ))}
               </div>
             </div>
           </section>

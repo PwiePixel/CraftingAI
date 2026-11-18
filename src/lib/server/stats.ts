@@ -27,7 +27,7 @@ export interface TopUser {
 }
 
 export interface AdminStats {
-  users: { total: number; suspended: number; newLast7Days: number; activeToday: number };
+  users: { total: number; suspended: number; newLast7Days: number; activeToday: number; onPaidPlans: number };
   conversations: number;
   messages: number;
   today: { messages: number; costUsd: number; inputTokens: number; outputTokens: number };
@@ -151,6 +151,7 @@ export function getAdminStats(days = 30): AdminStats {
       suspended: count("SELECT COUNT(*) AS n FROM users WHERE status = 'suspended'"),
       newLast7Days: count("SELECT COUNT(*) AS n FROM users WHERE created_at >= ?", now - 7 * DAY_MS),
       activeToday: activeByDay.get(today) ?? 0,
+      onPaidPlans: count("SELECT COUNT(*) AS n FROM users WHERE plan_id <> 'free' AND plan_source <> 'none'"),
     },
     conversations: count("SELECT COUNT(*) AS n FROM conversations"),
     messages: count("SELECT COUNT(*) AS n FROM messages"),
@@ -177,6 +178,9 @@ export interface AdminUserRow {
   role: "user" | "admin";
   status: "active" | "suspended";
   limitMultiplier: number;
+  planId: string;
+  planSource: "none" | "manual" | "stripe";
+  planStatus: string | null;
   createdAt: number;
   lastLoginAt: number | null;
   conversations: number;
@@ -198,6 +202,7 @@ export function listAdminUsers(options: {
     .prepare(
       `SELECT u.id, u.email, u.name, u.role, u.status,
               u.limit_multiplier AS limitMultiplier,
+              u.plan_id AS planId, u.plan_source AS planSource, u.plan_status AS planStatus,
               u.created_at AS createdAt, u.last_login_at AS lastLoginAt,
               (SELECT COUNT(*) FROM conversations c WHERE c.user_id = u.id) AS conversations,
               (SELECT COUNT(*) FROM usage_events e
@@ -219,4 +224,19 @@ export function listAdminUsers(options: {
       .get(like, like) as { n: number }
   ).n;
   return { rows, total };
+}
+
+/** Chat messages of one user per model over the last `days` days. */
+export function userMessageCounts(userId: string, days = 30): Record<TierId, number> {
+  const rows = getDb()
+    .prepare(
+      `SELECT tier, COUNT(*) AS n FROM usage_events
+        WHERE user_id = ? AND kind = 'chat' AND created_at > ? GROUP BY tier`,
+    )
+    .all(userId, Date.now() - days * DAY_MS) as { tier: string; n: number }[];
+  const result: Record<TierId, number> = { lite: 0, pro: 0, ultra: 0 };
+  for (const row of rows) {
+    if ((TIER_IDS as readonly string[]).includes(row.tier)) result[row.tier as TierId] = row.n;
+  }
+  return result;
 }

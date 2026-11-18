@@ -15,6 +15,7 @@ import { setPreferenceCookie } from "@/lib/client/cookies";
 import { cn } from "@/lib/shared/cn";
 import type {
   ConversationSummary,
+  PublicPlan,
   PublicSite,
   PublicTier,
   SessionUser,
@@ -25,6 +26,7 @@ import { Sidebar } from "./sidebar";
 
 export interface ShellData {
   user: SessionUser;
+  plan: PublicPlan;
   site: PublicSite;
   tiers: PublicTier[];
   conversations: ConversationSummary[];
@@ -35,6 +37,7 @@ export interface ShellData {
 
 interface ShellValue {
   user: SessionUser;
+  plan: PublicPlan;
   site: PublicSite;
   theme: ThemePreference;
   tiers: PublicTier[];
@@ -136,6 +139,7 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
   const value = useMemo<ShellValue>(
     () => ({
       user: data.user,
+      plan: data.plan,
       site: data.site,
       theme: data.theme,
       tiers,
@@ -155,6 +159,7 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
     }),
     [
       data.user,
+      data.plan,
       data.site,
       data.theme,
       tiers,

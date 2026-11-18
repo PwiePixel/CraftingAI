@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "admin": "tsx --conditions=react-server scripts/admin.ts",
-    "mock:upstream": "node scripts/mock-upstream.mjs"
+    "mock:upstream": "node scripts/mock-upstream.mjs",
+    "mock:stripe": "node scripts/mock-stripe.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.10.0",
@@ -28,6 +29,8 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "server-only": "^0.0.1",
+    "sharp": "^0.35.5",
+    "stripe": "^23.1.0",
     "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },

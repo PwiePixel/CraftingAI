@@ -21,6 +21,10 @@ const actionLabels: Record<string, string> = {
   "admin.user_update": "User changed by admin",
   "admin.user_delete": "User deleted by admin",
   "admin.user_password_reset": "Password reset by admin",
+  "billing.subscribed": "Plan bought",
+  "billing.cancel_scheduled": "Plan cancellation scheduled",
+  "billing.cancel_withdrawn": "Plan cancellation withdrawn",
+  "billing.subscription_ended": "Subscription ended",
   "cli.admin_create": "Administrator created (command line)",
   "cli.password_reset": "Password reset (command line)",
 };

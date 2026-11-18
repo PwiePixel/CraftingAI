@@ -36,7 +36,16 @@ function SecretBox({ value }: { value: string }) {
   );
 }
 
-export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; currentUserId: string }) {
+export function UsersManager({
+  rows,
+  currentUserId,
+  plans,
+}: {
+  rows: AdminUserRow[];
+  currentUserId: string;
+  /** Selectable plans: identifier and name, the free plan first. */
+  plans: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const toast = useToast();
 
@@ -44,6 +53,7 @@ export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; cu
   const [role, setRole] = useState<"user" | "admin">("user");
   const [status, setStatus] = useState<"active" | "suspended">("active");
   const [multiplier, setMultiplier] = useState("1");
+  const [planId, setPlanId] = useState("free");
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -62,10 +72,14 @@ export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; cu
     setRole(row.role);
     setStatus(row.status);
     setMultiplier(String(row.limitMultiplier));
+    setPlanId(plans.some((plan) => plan.id === row.planId) ? row.planId : "free");
     setFormError(null);
   }
 
   const isSelf = selected?.id === currentUserId;
+  const paysForPlan = selected?.planSource === "stripe" && selected.planId !== "free";
+  const planName = (row: AdminUserRow) =>
+    row.planSource === "none" ? plans[0]?.name : (plans.find((plan) => plan.id === row.planId)?.name ?? row.planId);
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -82,6 +96,7 @@ export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; cu
         method: "PATCH",
         body: {
           limitMultiplier,
+          ...(paysForPlan ? {} : { planId }),
           ...(isSelf ? {} : { role, status }),
         },
       });
@@ -163,6 +178,7 @@ export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; cu
               <tr className="border-b border-border">
                 <Th>User</Th>
                 <Th>Role</Th>
+                <Th>Plan</Th>
                 <Th>Status</Th>
                 <Th align="right">Today</Th>
                 <Th align="right">30 days</Th>
@@ -177,7 +193,7 @@ export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; cu
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-10 text-center text-sm text-fg-muted">
+                  <td colSpan={10} className="px-4 py-10 text-center text-sm text-fg-muted">
                     No users found.
                   </td>
                 </tr>
@@ -191,6 +207,14 @@ export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; cu
                       ) : null}
                     </Td>
                     <Td>{row.role === "admin" ? <Badge tone="accent">Admin</Badge> : <Badge>User</Badge>}</Td>
+                    <Td className="whitespace-nowrap">
+                      {planName(row)}
+                      {row.planSource === "stripe" ? (
+                        <span className="block text-xs text-fg-muted">paid · {row.planStatus ?? "unknown"}</span>
+                      ) : row.planSource === "manual" ? (
+                        <span className="block text-xs text-fg-muted">assigned</span>
+                      ) : null}
+                    </Td>
                     <Td>
                       {row.status === "active" ? (
                         <Badge tone="success">Active</Badge>
@@ -248,6 +272,28 @@ export function UsersManager({ rows, currentUserId }: { rows: AdminUserRow[]; cu
                 </Select>
               </Field>
             </div>
+            <Field
+              label="Plan"
+              htmlFor="user-plan"
+              hint={
+                paysForPlan
+                  ? "This user pays for a subscription. The plan follows the subscription and cannot be changed here."
+                  : "Assigns a plan without payment, for example for team members or as a gift."
+              }
+            >
+              <Select
+                id="user-plan"
+                value={planId}
+                disabled={paysForPlan}
+                onChange={(event) => setPlanId(event.target.value)}
+              >
+                {plans.map((plan) => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <Field
               label="Limit multiplier"
               htmlFor="user-multiplier"

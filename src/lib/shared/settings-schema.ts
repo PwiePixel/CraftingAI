@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { billingSettingsSchema, DEFAULT_BILLING } from "./billing-schema";
 import { TIER_IDS } from "./types";
 
 export const EFFORT_LEVELS = ["default", "low", "medium", "high"] as const;
@@ -67,6 +68,8 @@ export const settingsSchema = z.object({
     ultra: tierSettingsSchema,
   }),
   legal: legalSettingsSchema,
+  /** Plans and prices. Prices are defined here and handed to the payment provider at checkout. */
+  billing: billingSettingsSchema,
 });
 
 export type TierSettings = z.infer<typeof tierSettingsSchema>;
@@ -132,6 +135,7 @@ export const DEFAULT_SETTINGS: Settings = {
       outputPricePerMTok: 20,
     },
   },
+  billing: DEFAULT_BILLING,
   legal: {
     operatorName: "",
     operatorAddress: "",

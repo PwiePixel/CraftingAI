@@ -18,6 +18,7 @@ function olderVersion(source: string): string {
 describe("repairSettingsSchema", () => {
   it("leaves a complete schema untouched", () => {
     const result = repairSettingsSchema(current);
+    expect(result.problem).toBeUndefined();
     expect(result.added).toEqual([]);
     expect(result.source).toBe(current);
   });
@@ -36,6 +37,32 @@ describe("repairSettingsSchema", () => {
     // Everything that was there before is still there.
     expect(result.source).toContain('siteName: "lishia.bond"');
     expect(result.source).toContain("maxDailyRegistrations: 100");
+  });
+
+  it("adds the billing settings together with their import", () => {
+    const old = current
+      .replace(/import \{ billingSettingsSchema, DEFAULT_BILLING \} from "\.\/billing-schema";\n/, "")
+      .replace(/ {2}\/\*\* Plans and prices\.[^\n]*\n {2}billing: billingSettingsSchema,\n/, "")
+      .replace(/ {2}billing: DEFAULT_BILLING,\n/, "");
+    expect(old).not.toContain("billing");
+
+    const result = repairSettingsSchema(old);
+    expect(result.added).toEqual(["billing"]);
+    expect(result.source).toContain('import { billingSettingsSchema, DEFAULT_BILLING } from "./billing-schema";');
+    expect(result.source).toContain("billing: billingSettingsSchema,");
+    expect(result.source).toContain("billing: DEFAULT_BILLING,");
+    expect(repairSettingsSchema(result.source).added).toEqual([]);
+  });
+
+  it("is not confused by apostrophes and braces in comments or strings", () => {
+    const tricky = olderVersion(current).replace(
+      "export const DEFAULT_SETTINGS: Settings = {",
+      "export const DEFAULT_SETTINGS: Settings = {\n  // the provider's own } default {\n  tagline2: \"it's { fine\",",
+    );
+    const result = repairSettingsSchema(tricky);
+    expect(result.problem).toBeUndefined();
+    expect(result.added).toContain("modelHosting");
+    expect(result.source).toContain("// the provider's own } default {");
   });
 
   it("is safe to run repeatedly", () => {

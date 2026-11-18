@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, Code, Lightbulb, Map as MapIcon, PenLine, RefreshCw } from "lucide-react";
 import { TopBar, useShell } from "@/components/app/shell";
+import { LocalTime } from "@/components/local-time";
 import { LogoMark } from "@/components/logo";
 import { Alert } from "@/components/ui";
 import { api, ApiClientError, errorMessage, toApiError } from "@/lib/client/api";
@@ -16,7 +18,7 @@ import type {
 } from "@/lib/shared/types";
 import { Composer } from "./composer";
 import { MessageItem, type UiMessage } from "./message-item";
-import { ModelPicker, remainingMessages } from "./model-picker";
+import { allowanceText, ModelPicker, remainingMessages } from "./model-picker";
 
 export interface InitialConversation {
   conversation: ConversationSummary;
@@ -67,7 +69,7 @@ export function ChatView({
   onCreated?: (conversationId: string) => void;
 }) {
   const shell = useShell();
-  const { tiers, site, user, upsertConversation, updateTier, refreshTiers, setPreferredTier } = shell;
+  const { tiers, site, user, plan, upsertConversation, updateTier, refreshTiers, setPreferredTier } = shell;
 
   const [conversationId, setConversationId] = useState<string | null>(
     initial?.conversation.id ?? null,
@@ -478,8 +480,35 @@ export function ChatView({
           {requestError ? <Alert className="mb-2.5">{requestError}</Alert> : null}
           {!requestError && exhausted && tier ? (
             <Alert tone="warning" className="mb-2.5">
-              You have used all of today&apos;s {tier.label} messages. The limit resets at midnight
-              UTC{tiers.length > 1 ? " — or switch to another model above." : "."}
+              {!tier.included ? (
+                <>
+                  {tier.label} is not part of your plan.{" "}
+                  <Link href="/settings/plan" className="font-medium underline underline-offset-2">
+                    See plans
+                  </Link>
+                </>
+              ) : (
+                <>
+                  {tier.blockedBy?.kind === "fiveHour"
+                    ? `You have reached the 5-hour limit for ${tier.label}.`
+                    : tier.blockedBy?.kind === "week"
+                      ? `You have reached the weekly limit for ${tier.label}.`
+                      : `You have used all of today's ${tier.label} messages.`}{" "}
+                  {tier.blockedBy?.resetsAt ? (
+                    <>
+                      More become available at <LocalTime timestamp={tier.blockedBy.resetsAt} />
+                    </>
+                  ) : (
+                    "More become available soon"
+                  )}
+                  {tiers.length > 1 ? " — or switch to another model above." : "."}{" "}
+                  {plan.paid ? null : (
+                    <Link href="/settings/plan" className="font-medium underline underline-offset-2">
+                      Get higher limits
+                    </Link>
+                  )}
+                </>
+              )}
             </Alert>
           ) : null}
           <Composer
@@ -494,9 +523,7 @@ export function ChatView({
           />
           <p className="mt-2 px-2 text-center text-xs text-fg-subtle">
             {site.assistantName} can make mistakes. Check important information.
-            {tier && remaining !== null && remaining > 0
-              ? ` ${remaining} ${remaining === 1 ? "message" : "messages"} left today on ${tier.label}.`
-              : ""}
+            {tier && remaining !== null && remaining > 0 ? ` ${tier.label}: ${allowanceText(tier)}.` : ""}
           </p>
         </div>
       </div>

@@ -43,7 +43,9 @@ export default function PrivacyPage() {
       <p>
         When you register we store your email address, the name you optionally provide, the date of
         registration, the time of your last sign-in, and the version of the Terms of Use you
-        accepted together with the time of acceptance. Your password is never stored in readable
+        accepted together with the time of acceptance. If you upload a profile picture, we store a
+        small, re-encoded copy of it without the original file&apos;s metadata; only you can see it,
+        and you can remove it at any time. Your password is never stored in readable
         form: we only keep a salted cryptographic hash (Argon2id).
       </p>
       <h3>Conversations</h3>
@@ -51,6 +53,14 @@ export default function PrivacyPage() {
         We store the messages you send, the responses generated for you, the title of each
         conversation, which model was used, and the associated timestamps, so that you can return
         to your conversations. You can delete individual conversations or all of them at any time.
+      </p>
+      <h3>Plan and payments</h3>
+      <p>
+        We store which plan you are on. If you buy a paid plan, the payment itself is handled by
+        our payment service provider, Stripe. You enter your payment details on Stripe&apos;s
+        pages; we never see or store your card or bank details. We receive and store a customer and
+        subscription reference, the status of your subscription and the end of the current billing
+        period, so that we can give you access to your plan.
       </p>
       <h3>Usage records</h3>
       <p>
@@ -97,7 +107,11 @@ export default function PrivacyPage() {
               <td>Legitimate interests, Art. 6(1)(f)</td>
             </tr>
             <tr>
-              <td>Complying with legal obligations and responding to lawful requests</td>
+              <td>Providing and billing paid plans</td>
+              <td>Performance of a contract, Art. 6(1)(b)</td>
+            </tr>
+            <tr>
+              <td>Complying with legal obligations (including tax and accounting rules) and responding to lawful requests</td>
               <td>Legal obligation, Art. 6(1)(c)</td>
             </tr>
           </tbody>
@@ -136,6 +150,12 @@ export default function PrivacyPage() {
             currently use.
           </li>
         )}
+        <li>
+          <strong>Payment service provider.</strong> If you buy a paid plan, Stripe processes your
+          payment as an independent controller and receives your email address, the plan you chose
+          and the payment details you enter. Stripe&apos;s own privacy policy applies to that
+          processing.
+        </li>
         <li>
           <strong>Hosting and infrastructure providers</strong> supply the data-centre capacity
           and network on which our {selfHosted ? "servers run" : "server runs"}.
@@ -224,6 +244,11 @@ export default function PrivacyPage() {
           <strong>Account data and conversations:</strong> until you delete them or delete your
           account. Deleting your account removes your profile, sessions and all conversations
           immediately.
+        </li>
+        <li>
+          <strong>Payment references:</strong> as long as your account exists; invoices and
+          payment records are kept by the payment service provider and by us for as long as tax
+          and accounting law requires.
         </li>
         <li>
           <strong>Sessions:</strong> until you sign out, or at most 30 days (14 days without

@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { AppShell, type ShellData } from "@/components/app/shell";
 import { requireUser } from "@/lib/server/auth";
 import { listConversations } from "@/lib/server/conversations";
+import { publicPlan } from "@/lib/server/plans";
 import { getSettings, publicSite } from "@/lib/server/settings";
 import { getThemePreference } from "@/lib/server/theme";
 import { publicTiers } from "@/lib/server/usage";
@@ -16,6 +17,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const data: ShellData = {
     user: toSessionUser(user),
+    plan: publicPlan(user, settings),
     site: publicSite(settings),
     tiers: publicTiers(user, settings),
     conversations: listConversations(user.id),

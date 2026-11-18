@@ -29,7 +29,10 @@ export function errorResponse(error: ApiError): NextResponse<ApiErrorBody> {
     },
     {
       status: error.status,
-      headers: error.retryAfter ? { "Retry-After": String(error.retryAfter) } : undefined,
+      headers: {
+        "Cache-Control": "no-store",
+        ...(error.retryAfter ? { "Retry-After": String(error.retryAfter) } : {}),
+      },
     },
   );
 }
@@ -168,6 +171,9 @@ export function route<C = unknown>(handler: Handler<C>): Handler<C> {
   };
 }
 
+/** A JSON response. API data is never cached unless a caller says otherwise. */
 export function json<T>(data: T, init?: ResponseInit): NextResponse<T> {
-  return NextResponse.json(data, init);
+  const headers = new Headers(init?.headers);
+  if (!headers.has("Cache-Control")) headers.set("Cache-Control", "no-store");
+  return NextResponse.json(data, { ...init, headers });
 }

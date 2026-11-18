@@ -2,6 +2,7 @@ import { apiAdmin } from "@/lib/server/auth";
 import { audit } from "@/lib/server/audit";
 import { ApiError, clientIp, json, readJson, route } from "@/lib/server/http";
 import { deepMerge, getSettings, updateSettings } from "@/lib/server/settings";
+import { countUsersOnPlan } from "@/lib/server/users";
 import { settingsSchema } from "@/lib/shared/settings-schema";
 import { z } from "zod";
 
@@ -24,6 +25,18 @@ export const PUT = route(async (request) => {
   }
   if (!candidate.tiers[candidate.defaultTier].enabled) {
     throw new ApiError(400, "invalid_request", "The default model has to be enabled.");
+  }
+
+  // A plan that still has subscribers cannot be removed; disable it instead.
+  const remaining = new Set(candidate.billing.plans.map((plan) => plan.id));
+  for (const plan of getSettings().billing.plans) {
+    if (!remaining.has(plan.id) && countUsersOnPlan(plan.id) > 0) {
+      throw new ApiError(
+        400,
+        "plan_in_use",
+        `The plan "${plan.name}" still has users. Disable it instead of removing it.`,
+      );
+    }
   }
 
   const settings = updateSettings(patch);

@@ -28,13 +28,13 @@ import { rateLimit } from "@/lib/server/ratelimit";
 import { getSettings } from "@/lib/server/settings";
 import {
   assertWithinQuota,
+  dailyRequestCeiling,
   estimateTokens,
   publicTier,
   recordUsage,
   releaseUsage,
   reserveUsage,
   settleUsage,
-  tierLimit,
   utcDay,
 } from "@/lib/server/usage";
 import type { UserRow } from "@/lib/server/users";
@@ -87,8 +87,7 @@ export const POST = route(async (request) => {
   }
   // A generous ceiling on requests per day, whatever their outcome. Requests
   // that fail at the provider are refunded, and this keeps even those bounded.
-  const allowance = TIER_IDS.reduce((sum, id) => sum + (tierLimit(user, settings.tiers[id]) ?? 2_000), 0);
-  const daily = rateLimit(`chat-day:${user.id}`, 50 + allowance * 3, 24 * 60 * 60_000);
+  const daily = rateLimit(`chat-day:${user.id}`, dailyRequestCeiling(user, settings), 24 * 60 * 60_000);
   if (!daily.ok) {
     throw new ApiError(429, "rate_limited", "You have sent too many requests today. Please try again tomorrow.", daily.retryAfter);
   }
