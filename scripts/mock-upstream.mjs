@@ -10,6 +10,9 @@
  * Put one of these markers in a message to trigger a specific behaviour:
  *   [[refuse]]  the reply is declined      [[error]]  the provider returns HTTP 500
  *   [[slow]]    the reply streams slowly   [[long]]   the reply hits the length limit
+ *
+ * Set MOCK_REJECT_FALLBACK=1 to answer HTTP 400 to requests that ask for the
+ * optional server-side fallback, as a provider without that feature would.
  */
 import http from "node:http";
 
@@ -61,7 +64,20 @@ const server = http.createServer(async (req, res) => {
   for await (const chunk of req) raw += chunk;
   const body = JSON.parse(raw || "{}");
   const text = lastUserText(body);
-  console.log(`[mock] ${body.model} stream=${Boolean(body.stream)} messages=${body.messages?.length}`);
+  console.log(
+    `[mock] ${body.model} stream=${Boolean(body.stream)} messages=${body.messages?.length} fallbacks=${body.fallbacks !== undefined}`,
+  );
+
+  if (process.env.MOCK_REJECT_FALLBACK === "1" && body.fallbacks !== undefined) {
+    res.writeHead(400, { "content-type": "application/json" });
+    res.end(
+      JSON.stringify({
+        type: "error",
+        error: { type: "invalid_request_error", message: "fallbacks: Extra inputs are not permitted" },
+      }),
+    );
+    return;
+  }
 
   if (text.includes("[[error]]")) {
     res.writeHead(500, { "content-type": "application/json", "x-should-retry": "false" });
