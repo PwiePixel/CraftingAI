@@ -1,0 +1,701 @@
+#!/usr/bin/env bash
+#
+# CraftingAI installer for Debian and Ubuntu servers.
+#
+#   sudo bash install.sh              install, or update an existing installation
+#   sudo bash install.sh --reconfigure   ask all questions again
+#
+# What it does:
+#   1. Installs Node.js, the Caddy web server and build tools.
+#   2. Asks for your domain, the API key for the AI models and an admin account.
+#   3. Builds the application and runs it as a locked-down system service.
+#   4. Configures HTTPS for your domain. Caddy obtains the certificate from
+#      Let's Encrypt and renews it automatically; no cron job is needed.
+#   5. Sets up a daily database backup and (optionally) the firewall.
+#
+# Every answer can also be supplied as an environment variable for unattended
+# installs: DOMAIN, ACME_EMAIL, ANTHROPIC_API_KEY, SITE_NAME, ADMIN_EMAIL,
+# ADMIN_PASSWORD, DAILY_BUDGET_USD, SETUP_FIREWALL (yes/no), ASSUME_YES=1.
+# SKIP_DNS_CHECK=1 and SKIP_KEY_CHECK=1 skip the respective pre-flight checks.
+
+set -Eeuo pipefail
+
+APP_NAME="craftingai"
+APP_USER="craftingai"
+APP_DIR="/opt/craftingai"
+DATA_DIR="/var/lib/craftingai"
+CONF_DIR="/etc/craftingai"
+ENV_FILE="${CONF_DIR}/craftingai.env"
+RELEASES_DIR="${APP_DIR}/releases"
+CURRENT_LINK="${APP_DIR}/current"
+SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
+CADDYFILE="/etc/caddy/Caddyfile"
+APP_PORT="${APP_PORT:-3000}"
+NODE_MAJOR="${NODE_MAJOR:-24}"
+MIN_NODE_MAJOR=22
+SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+RECONFIGURE=0
+for arg in "$@"; do
+  case "$arg" in
+    --reconfigure) RECONFIGURE=1 ;;
+    -h | --help)
+      sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
+# ---------------------------------------------------------------- output ----
+
+if [[ -t 1 ]]; then
+  BOLD=$'\033[1m' DIM=$'\033[2m' RED=$'\033[31m' GREEN=$'\033[32m' YELLOW=$'\033[33m' BLUE=$'\033[34m' RESET=$'\033[0m'
+else
+  BOLD="" DIM="" RED="" GREEN="" YELLOW="" BLUE="" RESET=""
+fi
+
+step() { printf '\n%s==>%s %s%s%s\n' "$BLUE" "$RESET" "$BOLD" "$*" "$RESET"; }
+info() { printf '    %s\n' "$*"; }
+ok() { printf '    %s✓%s %s\n' "$GREEN" "$RESET" "$*"; }
+warn() { printf '    %s!%s %s\n' "$YELLOW" "$RESET" "$*" >&2; }
+die() {
+  printf '\n%sError:%s %s\n' "$RED" "$RESET" "$*" >&2
+  exit 1
+}
+
+SWAP_FILE=""
+RELEASE_DIR=""
+RELEASE_LIVE=0
+cleanup() {
+  if [[ -n "$SWAP_FILE" && -f "$SWAP_FILE" ]]; then
+    swapoff "$SWAP_FILE" 2>/dev/null || true
+    rm -f "$SWAP_FILE"
+  fi
+  # A release that never went live is removed again.
+  if [[ -n "$RELEASE_DIR" && "$RELEASE_LIVE" -eq 0 && -d "$RELEASE_DIR" ]]; then
+    rm -rf "$RELEASE_DIR"
+  fi
+}
+trap cleanup EXIT
+trap 'printf "\n%sInstallation failed%s near line %s. Nothing above this line was rolled back; fix the problem and run the installer again.\n" "$RED" "$RESET" "$LINENO" >&2' ERR
+
+# ----------------------------------------------------------------- input ----
+
+# Questions are read from the terminal even when the script itself is piped in.
+if [[ -r /dev/tty ]] && [[ "${ASSUME_YES:-0}" != "1" ]]; then
+  INTERACTIVE=1
+else
+  INTERACTIVE=0
+fi
+
+ask() { # ask VAR "Question" [default]
+  local var="$1" prompt="$2" default="${3:-}" answer=""
+  if [[ -n "${!var:-}" ]]; then return 0; fi
+  if [[ "$INTERACTIVE" != "1" ]]; then
+    [[ -n "$default" ]] || die "$var is required. Set it as an environment variable for unattended installs."
+    printf -v "$var" '%s' "$default"
+    return 0
+  fi
+  if [[ -n "$default" ]]; then
+    read -r -p "    $prompt [$default]: " answer </dev/tty
+  else
+    read -r -p "    $prompt: " answer </dev/tty
+  fi
+  printf -v "$var" '%s' "${answer:-$default}"
+}
+
+ask_secret() { # ask_secret VAR "Question"
+  local var="$1" prompt="$2" answer=""
+  if [[ -n "${!var:-}" ]]; then return 0; fi
+  [[ "$INTERACTIVE" == "1" ]] || return 0
+  read -r -s -p "    $prompt: " answer </dev/tty
+  printf '\n'
+  printf -v "$var" '%s' "$answer"
+}
+
+confirm() { # confirm "Question" default(y/n)
+  local prompt="$1" default="${2:-y}" answer=""
+  [[ "$INTERACTIVE" == "1" ]] || { [[ "$default" == "y" ]]; return; }
+  local hint="[Y/n]"
+  [[ "$default" == "y" ]] || hint="[y/N]"
+  read -r -p "    $prompt $hint " answer </dev/tty
+  answer="${answer:-$default}"
+  [[ "$answer" =~ ^[Yy] ]]
+}
+
+valid_domain() { [[ "$1" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]]; }
+valid_email() { [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; }
+
+# ----------------------------------------------------------- pre-flight ----
+
+[[ "$(id -u)" -eq 0 ]] || die "Please run this installer as root:  sudo bash install.sh"
+[[ -f "${SOURCE_DIR}/package.json" ]] || die "Run install.sh from inside the project directory (package.json not found)."
+case "${SOURCE_DIR}/" in
+  "${APP_DIR}/"*) die "Keep the downloaded project outside ${APP_DIR} (for example in /root/CraftingAI) and run install.sh from there." ;;
+esac
+command -v apt-get >/dev/null 2>&1 || die "This installer supports Debian and Ubuntu (apt-get was not found)."
+command -v systemctl >/dev/null 2>&1 || die "systemd is required."
+
+# shellcheck disable=SC1091
+. /etc/os-release
+case "${ID:-}" in
+  ubuntu | debian) ;;
+  *) warn "Untested distribution '${ID:-unknown}'. Continuing, but Debian or Ubuntu is recommended." ;;
+esac
+
+printf '\n%s%s installer%s\n' "$BOLD" "CraftingAI" "$RESET"
+printf '%sSelf-hosted AI chat with automatic HTTPS.%s\n' "$DIM" "$RESET"
+
+UPDATE=0
+if [[ -f "$ENV_FILE" && "$RECONFIGURE" -eq 0 ]]; then
+  UPDATE=1
+  step "Existing installation found"
+  info "Updating the application and keeping your configuration and data."
+  info "Run with --reconfigure to change the domain, API key or other answers."
+fi
+
+# ------------------------------------------------------------ questions ----
+
+if [[ "$UPDATE" -eq 0 ]]; then
+  step "Configuration"
+
+  # Keep secrets from a previous installation when reconfiguring.
+  OLD_SECRET=""
+  OLD_EFFECTIVE_DATE=""
+  if [[ -f "$ENV_FILE" ]]; then
+    OLD_SECRET="$(sed -n 's/^APP_SECRET=//p' "$ENV_FILE" | tr -d '"')"
+    OLD_EFFECTIVE_DATE="$(sed -n 's/^LEGAL_EFFECTIVE_DATE=//p' "$ENV_FILE" | tr -d '"')"
+  fi
+
+  while true; do
+    ask DOMAIN "Domain for the site (for example chat.example.com)"
+    DOMAIN="$(printf '%s' "$DOMAIN" | tr '[:upper:]' '[:lower:]' | sed -e 's#^https\?://##' -e 's#/.*$##')"
+    valid_domain "$DOMAIN" && break
+    warn "'$DOMAIN' is not a valid domain name."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid DOMAIN."
+    DOMAIN=""
+  done
+
+  while true; do
+    ask ACME_EMAIL "Email address for HTTPS certificate notices (Let's Encrypt)"
+    valid_email "$ACME_EMAIL" && break
+    warn "Please enter a valid email address."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid ACME_EMAIL."
+    ACME_EMAIL=""
+  done
+
+  while true; do
+    ask_secret ANTHROPIC_API_KEY "Anthropic API key (input is hidden)"
+    if [[ "${ANTHROPIC_API_KEY:-}" =~ ^sk-ant-[A-Za-z0-9_-]{20,}$ ]]; then break; fi
+    warn "That does not look like an Anthropic API key (it should start with sk-ant-)."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid or missing ANTHROPIC_API_KEY."
+    ANTHROPIC_API_KEY=""
+  done
+
+  while true; do
+    ask SITE_NAME "Name of your site" "CraftingAI"
+    if [[ "$SITE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._-]{0,38}$ ]]; then break; fi
+    warn "Use 1-39 letters, digits, spaces, dots, underscores or hyphens. You can change it later in the admin dashboard."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid SITE_NAME."
+    SITE_NAME=""
+  done
+
+  while true; do
+    ask ADMIN_EMAIL "Email address for the administrator account" "$ACME_EMAIL"
+    valid_email "$ADMIN_EMAIL" && break
+    warn "Please enter a valid email address."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid ADMIN_EMAIL."
+    ADMIN_EMAIL=""
+  done
+
+  GENERATED_PASSWORD=0
+  if [[ -z "${ADMIN_PASSWORD:-}" && "$INTERACTIVE" == "1" ]]; then
+    info "Choose an administrator password of at least 10 characters,"
+    info "or press Enter to have a strong one generated for you."
+    while true; do
+      ask_secret ADMIN_PASSWORD "Administrator password"
+      [[ -n "$ADMIN_PASSWORD" ]] || break
+      if [[ "${#ADMIN_PASSWORD}" -lt 10 ]]; then
+        warn "The password must be at least 10 characters long."
+        ADMIN_PASSWORD=""
+        continue
+      fi
+      ADMIN_PASSWORD_REPEAT=""
+      ask_secret ADMIN_PASSWORD_REPEAT "Repeat the password"
+      [[ "$ADMIN_PASSWORD" == "$ADMIN_PASSWORD_REPEAT" ]] && break
+      warn "The passwords do not match."
+      ADMIN_PASSWORD=""
+    done
+  fi
+
+  while true; do
+    ask DAILY_BUDGET_USD "Daily spending cap for AI usage in USD (0 = no cap)" "10"
+    [[ "$DAILY_BUDGET_USD" =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] && break
+    warn "Enter a number such as 10 or 2.50."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid DAILY_BUDGET_USD."
+    DAILY_BUDGET_USD=""
+  done
+
+  if [[ -z "${SETUP_FIREWALL:-}" ]]; then
+    if confirm "Configure the firewall (allow SSH, HTTP and HTTPS only)?" y; then
+      SETUP_FIREWALL="yes"
+    else
+      SETUP_FIREWALL="no"
+    fi
+  fi
+fi
+
+# ------------------------------------------------------------- packages ----
+
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
+
+step "Installing system packages"
+apt-get update -qq
+apt-get install -y -qq --no-install-recommends \
+  ca-certificates curl gnupg openssl rsync build-essential python3 \
+  debian-keyring debian-archive-keyring apt-transport-https >/dev/null
+ok "Base packages installed"
+
+node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
+
+if ! command -v node >/dev/null 2>&1 || [[ "$(node_major)" -lt "$MIN_NODE_MAJOR" ]]; then
+  info "Installing Node.js ${NODE_MAJOR} from NodeSource ..."
+  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh
+  bash /tmp/nodesource_setup.sh >/dev/null
+  rm -f /tmp/nodesource_setup.sh
+  apt-get install -y -qq nodejs >/dev/null
+fi
+[[ "$(node_major)" -ge "$MIN_NODE_MAJOR" ]] || die "Node.js ${MIN_NODE_MAJOR} or newer is required (found $(node -v 2>/dev/null || echo none))."
+ok "Node.js $(node -v)"
+
+if ! command -v caddy >/dev/null 2>&1; then
+  info "Installing the Caddy web server ..."
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' |
+    gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+    >/etc/apt/sources.list.d/caddy-stable.list
+  chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg /etc/apt/sources.list.d/caddy-stable.list
+  apt-get update -qq
+  apt-get install -y -qq caddy >/dev/null
+fi
+ok "Caddy $(caddy version 2>/dev/null | awk '{print $1}')"
+
+# -------------------------------------------------------- sanity checks ----
+
+if [[ "$UPDATE" -eq 0 ]]; then
+  step "Checking the environment"
+
+  # Another web server on ports 80/443 would prevent Caddy from getting a certificate.
+  if command -v ss >/dev/null 2>&1; then
+    BLOCKERS="$(ss -ltnpH 'sport = :80 or sport = :443' 2>/dev/null | grep -v caddy || true)"
+    if [[ -n "$BLOCKERS" ]]; then
+      warn "Another program is already listening on port 80 or 443:"
+      printf '%s\n' "$BLOCKERS" | sed 's/^/        /' >&2
+      die "Stop or remove that web server (for example nginx or apache2) and run the installer again."
+    fi
+    if ss -ltnH "sport = :${APP_PORT}" 2>/dev/null | grep -q . && ! systemctl is-active --quiet "$APP_NAME"; then
+      die "Port ${APP_PORT} is already in use. Re-run with another port, for example:  APP_PORT=3100 bash install.sh"
+    fi
+  fi
+
+  # The domain has to point at this server before a certificate can be issued.
+  if [[ "${SKIP_DNS_CHECK:-0}" == "1" ]]; then
+    info "Skipping the DNS check (SKIP_DNS_CHECK=1)."
+  else
+    SERVER_IP4="$(curl -4 -fsS --max-time 8 https://api.ipify.org 2>/dev/null || true)"
+    SERVER_IP6="$(curl -6 -fsS --max-time 8 https://api64.ipify.org 2>/dev/null || true)"
+    DOMAIN_IPS="$(getent ahosts "$DOMAIN" 2>/dev/null | awk '{print $1}' | sort -u | tr '\n' ' ' || true)"
+    if [[ -z "$DOMAIN_IPS" ]]; then
+      warn "${DOMAIN} does not resolve yet. Create a DNS A record pointing to ${SERVER_IP4:-this server}."
+      confirm "Continue anyway? HTTPS will start working once DNS is set up." n ||
+        die "Aborted. Set up DNS and run the installer again."
+    elif [[ -n "$SERVER_IP4$SERVER_IP6" ]] &&
+      ! grep -qwF -e "${SERVER_IP4:-none}" -e "${SERVER_IP6:-none}" <<<"$DOMAIN_IPS"; then
+      warn "${DOMAIN} resolves to ${DOMAIN_IPS}but this server is ${SERVER_IP4:-?} ${SERVER_IP6:-}."
+      warn "If you use a proxy such as Cloudflare this can be fine; otherwise fix the DNS record."
+      confirm "Continue anyway?" y || die "Aborted. Fix DNS and run the installer again."
+    else
+      ok "${DOMAIN} points to this server"
+    fi
+  fi
+
+  # Verify the API key with a free metadata request before going any further.
+  # The key is handed to curl on standard input so it never appears in the process list.
+  if [[ "${SKIP_KEY_CHECK:-0}" == "1" ]]; then
+    KEY_STATUS="skipped"
+  else
+    KEY_STATUS="$(printf 'header = "x-api-key: %s"\n' "$ANTHROPIC_API_KEY" |
+      curl -s -o /dev/null -w '%{http_code}' --max-time 15 --config - \
+        -H 'anthropic-version: 2023-06-01' https://api.anthropic.com/v1/models || echo 000)"
+  fi
+  case "$KEY_STATUS" in
+    skipped) info "Skipping the API key check (SKIP_KEY_CHECK=1)." ;;
+    200) ok "API key accepted" ;;
+    401 | 403) die "The API key was rejected (HTTP ${KEY_STATUS}). Check the key and run the installer again." ;;
+    *) warn "Could not verify the API key right now (HTTP ${KEY_STATUS}). Continuing; you can check it later in the admin dashboard." ;;
+  esac
+fi
+
+# ------------------------------------------------------- user and files ----
+
+step "Preparing the application"
+
+if ! id -u "$APP_USER" >/dev/null 2>&1; then
+  useradd --system --home-dir "$DATA_DIR" --shell /usr/sbin/nologin "$APP_USER"
+  ok "Created system user ${APP_USER}"
+fi
+install -d -m 0700 -o "$APP_USER" -g "$APP_USER" "$DATA_DIR"
+install -d -m 0750 -o root -g "$APP_USER" "$CONF_DIR" "$APP_DIR" "$RELEASES_DIR"
+
+if [[ "$UPDATE" -eq 0 ]]; then
+  umask 077
+  {
+    printf '# Configuration for %s. Written by install.sh on %s.\n' "$APP_NAME" "$(date -u +%F)"
+    printf '# Restart the service after editing:  systemctl restart %s\n' "$APP_NAME"
+    printf 'NODE_ENV=production\n'
+    printf 'NEXT_TELEMETRY_DISABLED=1\n'
+    printf 'HOSTNAME=127.0.0.1\n'
+    printf 'PORT=%s\n' "$APP_PORT"
+    printf 'APP_URL=https://%s\n' "$DOMAIN"
+    printf 'TRUST_PROXY=1\n'
+    printf 'DATA_DIR=%s\n' "$DATA_DIR"
+    printf 'APP_SECRET=%s\n' "${OLD_SECRET:-$(openssl rand -hex 32)}"
+    printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
+    printf 'SITE_NAME="%s"\n' "$SITE_NAME"
+    printf 'CONTACT_EMAIL=%s\n' "$ADMIN_EMAIL"
+    printf 'DAILY_BUDGET_USD=%s\n' "$DAILY_BUDGET_USD"
+    printf 'LEGAL_EFFECTIVE_DATE=%s\n' "${OLD_EFFECTIVE_DATE:-$(date -u +%F)}"
+  } >"${ENV_FILE}.new"
+  umask 022
+  chown root:"$APP_USER" "${ENV_FILE}.new"
+  chmod 0640 "${ENV_FILE}.new"
+  mv -f "${ENV_FILE}.new" "$ENV_FILE"
+  ok "Configuration written to ${ENV_FILE} (readable only by root and the service)"
+else
+  APP_PORT="$(sed -n 's/^PORT=//p' "$ENV_FILE" | tr -d '"')"
+  APP_PORT="${APP_PORT:-3000}"
+  DOMAIN="$(sed -n 's#^APP_URL=https\?://##p' "$ENV_FILE" | tr -d '"')"
+fi
+
+# Every run builds into a fresh release directory. The version that is live
+# keeps running untouched until the new one has been built successfully.
+PREVIOUS_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+[[ -n "$PREVIOUS_RELEASE" && -d "$PREVIOUS_RELEASE" ]] || PREVIOUS_RELEASE=""
+RELEASE_DIR="${RELEASES_DIR}/$(date -u +%Y%m%d%H%M%S)"
+
+# Local data, dependencies and build output are not copied.
+rsync -a \
+  --exclude '.git' --exclude 'node_modules' --exclude '.next' --exclude '.data' \
+  --exclude '.env*' --exclude '*.db' --exclude '*.db-wal' --exclude '*.db-shm' \
+  "${SOURCE_DIR}/" "${RELEASE_DIR}/"
+ok "Source code copied to ${RELEASE_DIR}"
+
+# ------------------------------------------------------------------ build ----
+
+step "Building the application (this takes a few minutes)"
+
+# Small servers run out of memory during the build; add temporary swap if needed.
+AVAILABLE_MB="$(awk '/MemAvailable|SwapFree/ {sum += $2} END {print int(sum / 1024)}' /proc/meminfo)"
+if [[ "$AVAILABLE_MB" -lt 2000 ]]; then
+  SWAP_FILE="/var/tmp/${APP_NAME}-build.swap"
+  if fallocate -l 2G "$SWAP_FILE" 2>/dev/null && chmod 600 "$SWAP_FILE" &&
+    mkswap "$SWAP_FILE" >/dev/null 2>&1 && swapon "$SWAP_FILE" 2>/dev/null; then
+    info "Low memory (${AVAILABLE_MB} MB free): using 2 GB of temporary swap for the build."
+  else
+    rm -f "$SWAP_FILE"
+    SWAP_FILE=""
+    warn "Low memory (${AVAILABLE_MB} MB free) and no swap could be added. The build may fail."
+  fi
+fi
+
+# Build as the unprivileged service user, never as root, and with a clean
+# environment. Only proxy settings (if this server needs them) are passed on.
+chown -R "$APP_USER":"$APP_USER" "$RELEASE_DIR"
+PASS_ENV=()
+for name in HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy NODE_EXTRA_CA_CERTS SSL_CERT_FILE; do
+  if [[ -n "${!name:-}" ]]; then PASS_ENV+=("${name}=${!name}"); fi
+done
+as_app() {
+  runuser -u "$APP_USER" -- env -i \
+    HOME="$DATA_DIR" PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+    npm_config_cache="${DATA_DIR}/.npm" npm_config_update_notifier=false \
+    NEXT_TELEMETRY_DISABLED=1 "${PASS_ENV[@]}" "$@"
+}
+
+BUILD_LOG="/var/tmp/${APP_NAME}-build.log"
+cd "$RELEASE_DIR"
+info "Installing dependencies ..."
+as_app npm ci --no-audit --no-fund --loglevel=error >"$BUILD_LOG" 2>&1 ||
+  { tail -n 40 "$BUILD_LOG" >&2; die "Installing the dependencies failed. Full log: ${BUILD_LOG}"; }
+info "Compiling ..."
+as_app env NODE_ENV=production npm run build >>"$BUILD_LOG" 2>&1 ||
+  { tail -n 40 "$BUILD_LOG" >&2; die "The build failed. Full log: ${BUILD_LOG}"; }
+ok "Build finished"
+
+# The build cache is only useful for rebuilding in place, which never happens.
+rm -rf "${RELEASE_DIR}/.next/cache"
+# The running service may read the code but not change it.
+chown -R root:"$APP_USER" "$RELEASE_DIR"
+chmod -R u=rwX,g=rX,o= "$RELEASE_DIR"
+install -d -m 0750 -o "$APP_USER" -g "$APP_USER" "${RELEASE_DIR}/.next/cache"
+cd /
+
+# ---------------------------------------------------------------- service ----
+
+step "Setting up the service"
+
+write_units() { # write_units <release directory>
+  local release="$1"
+  cat >"$SERVICE_FILE" <<UNIT
+[Unit]
+Description=CraftingAI web application
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${APP_USER}
+Group=${APP_USER}
+WorkingDirectory=${release}
+EnvironmentFile=${ENV_FILE}
+ExecStart=/usr/bin/env node node_modules/next/dist/bin/next start --hostname 127.0.0.1 --port ${APP_PORT}
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+UMask=0077
+LimitNOFILE=65536
+
+# Sandboxing: the service can only write to its data and cache directories.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=${DATA_DIR} ${release}/.next/cache
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+  cat >"/etc/systemd/system/${APP_NAME}-backup.service" <<UNIT
+[Unit]
+Description=CraftingAI database backup
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_USER}
+WorkingDirectory=${release}
+Environment=DATA_DIR=${DATA_DIR}
+ExecStart=/usr/bin/env node scripts/backup.mjs
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=${DATA_DIR}
+ProtectHome=true
+PrivateTmp=true
+UNIT
+
+  cat >"/etc/systemd/system/${APP_NAME}-backup.timer" <<UNIT
+[Unit]
+Description=Daily CraftingAI database backup
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+  systemctl daemon-reload
+}
+
+wait_until_healthy() {
+  for _ in $(seq 1 45); do
+    if curl -fsS --max-time 3 "http://127.0.0.1:${APP_PORT}/api/health" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+write_units "$RELEASE_DIR"
+systemctl enable --quiet "$APP_NAME" "${APP_NAME}-backup.timer"
+systemctl restart "$APP_NAME"
+systemctl start "${APP_NAME}-backup.timer"
+
+if ! wait_until_healthy; then
+  journalctl -u "$APP_NAME" -n 30 --no-pager >&2 || true
+  if [[ -n "$PREVIOUS_RELEASE" ]]; then
+    warn "The new version did not start. Switching back to the previous version ..."
+    write_units "$PREVIOUS_RELEASE"
+    systemctl restart "$APP_NAME"
+    wait_until_healthy || warn "The previous version did not come back either. Check:  journalctl -u ${APP_NAME} -e"
+    die "The update was rolled back. The log above shows why the new version failed to start."
+  fi
+  die "The service did not start. See the log above, or run:  journalctl -u ${APP_NAME} -e"
+fi
+
+# The new release is live: point "current" at it and keep one older release.
+RELEASE_LIVE=1
+ln -sfn "$RELEASE_DIR" "$CURRENT_LINK"
+find "$RELEASES_DIR" -mindepth 1 -maxdepth 1 -type d | sort | head -n -2 | while read -r old_release; do
+  rm -rf "$old_release"
+done
+ok "Service is running (daily backups in ${DATA_DIR}/backups)"
+
+# ------------------------------------------------------------------ admin ----
+
+if [[ "$UPDATE" -eq 0 ]]; then
+  step "Creating the administrator account"
+  if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
+    ADMIN_PASSWORD="$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)"
+    GENERATED_PASSWORD=1
+  fi
+  # The password is exported inside a subshell and inherited by the command, so
+  # it never appears on a command line or in the process list.
+  (
+    cd "$CURRENT_LINK"
+    export ADMIN_PASSWORD NODE_ENV=production DATA_DIR
+    export HOME="$DATA_DIR" npm_config_cache="${DATA_DIR}/.npm" npm_config_update_notifier=false
+    runuser -u "$APP_USER" -- npm run --silent admin -- create "$ADMIN_EMAIL"
+  ) | sed 's/^/    /'
+fi
+
+# ------------------------------------------------------------------ HTTPS ----
+
+if [[ "$UPDATE" -eq 0 ]]; then
+  step "Configuring HTTPS with Caddy"
+
+  SITE_BLOCK="$(cat <<CADDY
+# BEGIN ${APP_NAME} (managed by install.sh; changes inside this block are overwritten)
+${DOMAIN} {
+	# Certificates are obtained from Let's Encrypt and renewed automatically.
+	tls ${ACME_EMAIL}
+
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	request_body {
+		max_size 1MB
+	}
+
+	reverse_proxy 127.0.0.1:${APP_PORT} {
+		# Pass streamed replies through immediately.
+		flush_interval -1
+	}
+}
+# END ${APP_NAME}
+CADDY
+)"
+
+  install -d -m 0755 /etc/caddy
+  if [[ -f "$CADDYFILE" ]]; then
+    cp -a "$CADDYFILE" "${CADDYFILE}.bak.$(date +%Y%m%d%H%M%S)"
+  fi
+  if [[ -f "$CADDYFILE" ]] && grep -q "^# BEGIN ${APP_NAME}" "$CADDYFILE"; then
+    # Replace our block, keep everything else.
+    awk -v begin="# BEGIN ${APP_NAME}" -v end="# END ${APP_NAME}" '
+      index($0, begin) == 1 { skip = 1 }
+      !skip { print }
+      index($0, end) == 1 { skip = 0 }
+    ' "$CADDYFILE" >"${CADDYFILE}.new"
+    printf '%s\n' "$SITE_BLOCK" >>"${CADDYFILE}.new"
+  elif [[ -f "$CADDYFILE" ]] && grep -Eq '^[[:space:]]*[^#[:space:]]' "$CADDYFILE" &&
+    ! grep -q '/usr/share/caddy' "$CADDYFILE"; then
+    # A custom configuration exists: add our site and leave the rest alone.
+    { cat "$CADDYFILE"; printf '\n%s\n' "$SITE_BLOCK"; } >"${CADDYFILE}.new"
+  else
+    # Fresh installation (or the stock placeholder page): replace it.
+    printf '%s\n' "$SITE_BLOCK" >"${CADDYFILE}.new"
+  fi
+
+  if caddy validate --config "${CADDYFILE}.new" --adapter caddyfile >/dev/null 2>&1; then
+    mv -f "${CADDYFILE}.new" "$CADDYFILE"
+  else
+    caddy validate --config "${CADDYFILE}.new" --adapter caddyfile >&2 || true
+    rm -f "${CADDYFILE}.new"
+    die "The generated Caddy configuration is invalid; your previous configuration was left untouched."
+  fi
+  systemctl enable --quiet caddy
+  systemctl reload caddy 2>/dev/null || systemctl restart caddy
+  ok "Caddy configured for https://${DOMAIN}"
+
+  if [[ "${SETUP_FIREWALL:-no}" == "yes" ]]; then
+    step "Configuring the firewall"
+    command -v ufw >/dev/null 2>&1 || apt-get install -y -qq ufw >/dev/null
+    # Keep every port the SSH daemon listens on open, so you cannot be locked out.
+    SSH_PORTS="$( (sshd -T 2>/dev/null || true) | awk '$1 == "port" {print $2}' | sort -u)"
+    for port in ${SSH_PORTS:-22}; do ufw allow "${port}/tcp" >/dev/null; done
+    ufw allow 80/tcp >/dev/null
+    ufw allow 443/tcp >/dev/null
+    ufw allow 443/udp >/dev/null
+    ufw --force enable >/dev/null
+    ok "Firewall active: SSH (${SSH_PORTS:-22}), HTTP and HTTPS are allowed"
+  fi
+
+  info "Waiting for the HTTPS certificate ..."
+  HTTPS_OK=0
+  for _ in $(seq 1 30); do
+    if curl -fsS --max-time 5 "https://${DOMAIN}/api/health" >/dev/null 2>&1; then
+      HTTPS_OK=1
+      break
+    fi
+    sleep 3
+  done
+  if [[ "$HTTPS_OK" -eq 1 ]]; then
+    ok "https://${DOMAIN} is live with a valid certificate"
+  else
+    warn "https://${DOMAIN} is not reachable yet. This is normal if DNS was changed recently:"
+    warn "Caddy keeps retrying on its own. Check progress with:  journalctl -u caddy -e"
+  fi
+else
+  systemctl reload caddy 2>/dev/null || true
+fi
+
+# ---------------------------------------------------------------- summary ----
+
+printf '\n%s%sAll done.%s\n\n' "$GREEN" "$BOLD" "$RESET"
+if [[ "$UPDATE" -eq 0 ]]; then
+  printf '  Site:            %shttps://%s%s\n' "$BOLD" "$DOMAIN" "$RESET"
+  printf '  Admin dashboard: https://%s/admin\n' "$DOMAIN"
+  printf '  Admin sign-in:   %s\n' "$ADMIN_EMAIL"
+  if [[ "${GENERATED_PASSWORD:-0}" -eq 1 ]]; then
+    printf '  Admin password:  %s%s%s   (shown only once: store it now and change it after signing in)\n' "$BOLD" "$ADMIN_PASSWORD" "$RESET"
+  fi
+  printf '\n  Next steps:\n'
+  printf '    1. Sign in and open Admin -> Settings to add your legal details (operator, address).\n'
+  printf '    2. Review limits and the daily budget under Admin -> Models & limits.\n'
+else
+  printf '  %s has been updated and restarted.\n' "https://${DOMAIN}"
+fi
+printf '\n  Useful commands:\n'
+printf '    systemctl status %s        service status\n' "$APP_NAME"
+printf '    journalctl -u %s -f        live logs\n' "$APP_NAME"
+printf '    sudo bash install.sh              update after pulling new code\n'
+printf '    %s      configuration (API key, domain)\n\n' "$ENV_FILE"
