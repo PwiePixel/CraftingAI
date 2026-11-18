@@ -6,7 +6,9 @@ import { getSettings, publicSite } from "@/lib/server/settings";
 export const metadata: Metadata = { title: "Privacy Policy" };
 
 export default function PrivacyPage() {
-  const { siteName, legal } = publicSite(getSettings());
+  const settings = getSettings();
+  const { siteName, legal } = publicSite(settings);
+  const selfHosted = settings.modelHosting === "self-hosted";
 
   return (
     <LegalPage title="Privacy Policy" effectiveDate={legal.effectiveDate}>
@@ -109,24 +111,34 @@ export default function PrivacyPage() {
       </p>
 
       <h2>4. Where your data is processed and who receives it</h2>
-      <p>
-        The website, your account and your conversation history are stored on a server that we
-        operate ourselves. To generate a response, the message you send and the relevant part of
-        the conversation history are additionally transmitted to the provider of the language
-        model that answers it. We do not send your name, email address or account identifier with
-        these requests.
-      </p>
+      {selfHosted ? (
+        <p>
+          The website, your account, your conversation history and the language models that
+          generate the responses all run on servers that we operate ourselves. Your messages are
+          processed there and are not transmitted to external AI providers.
+        </p>
+      ) : (
+        <p>
+          The website, your account and your conversation history are stored on a server that we
+          operate ourselves. To generate a response, the message you send and the relevant part of
+          the conversation history are additionally transmitted to the provider of the language
+          model that answers it. We do not send your name, email address or account identifier with
+          these requests.
+        </p>
+      )}
       <ul>
-        <li>
-          <strong>AI model providers</strong> process conversation content on our behalf in order
-          to generate responses. They are located in the United States. Under the terms that apply
-          to our use of their services, they may retain requests for a limited time for security
-          and abuse-prevention purposes. You can ask us at any time which providers we currently
-          use.
-        </li>
+        {selfHosted ? null : (
+          <li>
+            <strong>AI model providers</strong> process conversation content on our behalf in order
+            to generate responses. They are located in the United States. Under the terms that
+            apply to our use of their services, they may retain requests for a limited time for
+            security and abuse-prevention purposes. You can ask us at any time which providers we
+            currently use.
+          </li>
+        )}
         <li>
           <strong>Hosting and infrastructure providers</strong> supply the data-centre capacity
-          and network on which our server runs.
+          and network on which our {selfHosted ? "servers run" : "server runs"}.
         </li>
         <li>
           <strong>Authorities</strong>, where we are legally obliged to disclose data or where this
@@ -139,14 +151,24 @@ export default function PrivacyPage() {
       </p>
 
       <h2>5. Transfers to other countries</h2>
-      <p>
-        Some recipients, in particular AI model providers, are located in the United States or
-        process data there. Where personal data is transferred outside the European Economic Area,
-        the United Kingdom or Switzerland, we rely on an adequacy decision (such as the EU–US Data
-        Privacy Framework, where the recipient is certified) or on standard contractual clauses
-        approved by the European Commission. You can ask us for more information about these
-        safeguards.
-      </p>
+      {selfHosted ? (
+        <p>
+          We do not pass conversation content on to AI providers in other countries. If one of our
+          hosting or infrastructure providers processes personal data outside the European
+          Economic Area, the United Kingdom or Switzerland, we rely on an adequacy decision or on
+          standard contractual clauses approved by the European Commission. You can ask us for
+          more information about these safeguards.
+        </p>
+      ) : (
+        <p>
+          Some recipients, in particular AI model providers, are located in the United States or
+          process data there. Where personal data is transferred outside the European Economic
+          Area, the United Kingdom or Switzerland, we rely on an adequacy decision (such as the
+          EU–US Data Privacy Framework, where the recipient is certified) or on standard
+          contractual clauses approved by the European Commission. You can ask us for more
+          information about these safeguards.
+        </p>
+      )}
 
       <h2>6. Cookies and local storage</h2>
       <p>

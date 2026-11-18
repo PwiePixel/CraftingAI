@@ -45,6 +45,9 @@ export default async function HomePage() {
   const signedIn = Boolean(await getAuth());
   const settings = getSettings();
   const { siteName, assistantName, inDevelopment, registrationOpen } = settings;
+  const selfHosted = settings.modelHosting === "self-hosted";
+  const sources = settings.baseModelSources;
+  const basedOn = sources ? `openly available models from ${sources}` : "openly available models";
   const contactEmail = settings.legal.contactEmail;
   const tiers = TIER_IDS.filter((id) => settings.tiers[id].enabled).map((id) => ({
     id,
@@ -109,7 +112,9 @@ export default async function HomePage() {
     {
       icon: Server,
       title: "Hosted by us",
-      text: "The site, your account and your chat history live on a server we operate ourselves.",
+      text: selfHosted
+        ? "The site, your chats and the models themselves all run on servers we operate ourselves."
+        : "The site, your account and your chat history live on a server we operate ourselves.",
     },
   ];
 
@@ -135,6 +140,14 @@ export default async function HomePage() {
       title: "Answers can be wrong",
       text: `Like every AI assistant, ${assistantName} makes mistakes. Double-check anything that matters.`,
     },
+    ...(selfHosted
+      ? [
+          {
+            title: "Our models are test versions",
+            text: `${assistantName} runs on our own models, which we are still developing. Their quality and behaviour can change from one day to the next.`,
+          },
+        ]
+      : []),
   ];
 
   const questions = [
@@ -150,7 +163,9 @@ export default async function HomePage() {
     },
     {
       question: `Who is behind ${assistantName}?`,
-      answer: `${assistantName} is our own assistant, built and run by the ${siteName} team. We design how it behaves, operate the site, and keep your account and your conversations on a server we run ourselves. To write its answers, ${assistantName} uses large language models, including models operated by third-party providers. The Privacy Policy explains what is shared with them.`,
+      answer: selfHosted
+        ? `${assistantName} is our own assistant, built and run by the ${siteName} team. It runs on our own test models, which we are currently developing on the basis of ${basedOn}. The models, the site and your conversations are all hosted on servers we operate ourselves, so your messages are not passed on to outside AI providers.`
+        : `${assistantName} is our own assistant, built and run by the ${siteName} team. We design how it behaves, operate the site, and keep your account and your conversations on a server we run ourselves. To write its answers, ${assistantName} uses large language models, including models operated by third-party providers. The Privacy Policy explains what is shared with them.`,
     },
     {
       question: "What happens to my conversations?",
@@ -297,7 +312,11 @@ export default async function HomePage() {
             <SectionHeading
               eyebrow={`About ${siteName}`}
               title="An AI assistant you can simply talk to"
-              text={`${siteName} is the home of ${assistantName}, our own AI assistant, which we are building and running ourselves. You write a message in plain language and ${assistantName} replies within seconds: explaining, drafting, summarising, translating, debugging or brainstorming with you. There is nothing to install, and your conversations are saved to your account so you can continue them later on any device.`}
+              text={
+                selfHosted
+                  ? `${siteName} is the home of ${assistantName}, our own AI assistant. ${assistantName} runs on our own test models, which we are currently developing on the basis of ${basedOn}, and everything runs on servers we operate ourselves. You write a message in plain language and ${assistantName} replies within seconds: explaining, drafting, summarising, translating, debugging or brainstorming with you. There is nothing to install, and your conversations are saved to your account so you can continue them later on any device.`
+                  : `${siteName} is the home of ${assistantName}, our own AI assistant, which we are building and running ourselves. You write a message in plain language and ${assistantName} replies within seconds: explaining, drafting, summarising, translating, debugging or brainstorming with you. There is nothing to install, and your conversations are saved to your account so you can continue them later on any device.`
+              }
             />
             <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {useCases.map(({ icon: Icon, title, text }) => (
@@ -335,7 +354,9 @@ export default async function HomePage() {
               <SectionHeading
                 eyebrow="Models"
                 title="The right model for every task"
-                text="Use the fast model for everyday questions and a more capable one when a problem needs more depth. You can switch at any time, even in the middle of a conversation."
+                text={`Use the fast model for everyday questions and a more capable one when a problem needs more depth. You can switch at any time, even in the middle of a conversation.${
+                  selfHosted ? " All of them are our own test models and still in development." : ""
+                }`}
               />
               <div className="mt-10 grid gap-4 md:grid-cols-3">
                 {tiers.map((tier) => {

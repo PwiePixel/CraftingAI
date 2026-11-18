@@ -28,6 +28,18 @@ describe("system prompt", () => {
     expect(first).toBe(second);
   });
 
+  it("stays neutral about the underlying models when they are self-hosted", () => {
+    const prompt = buildSystemPrompt(
+      { ...settings, modelHosting: "self-hosted" },
+      settings.tiers.lite,
+      "2026-11-18",
+    );
+    expect(prompt).toContain("You are Ace, the AI assistant of Acme Chat");
+    expect(prompt).not.toMatch(/third-party/);
+    expect(prompt).toMatch(/Do not state or guess which underlying model you are/);
+    expect(prompt).toContain("never claim to be human");
+  });
+
   it("appends the operator's custom instructions", () => {
     const prompt = buildSystemPrompt({ ...settings, customInstructions: "Always be brief." }, settings.tiers.lite, "2026-11-18");
     expect(prompt).toContain("Always be brief.");

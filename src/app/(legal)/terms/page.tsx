@@ -6,8 +6,11 @@ import { getSettings, publicSite } from "@/lib/server/settings";
 export const metadata: Metadata = { title: "Terms of Use" };
 
 export default function TermsPage() {
-  const { siteName, assistantName, legal } = publicSite(getSettings());
+  const settings = getSettings();
+  const { siteName, assistantName, legal } = publicSite(settings);
   const operator = legal.operatorName;
+  const selfHosted = settings.modelHosting === "self-hosted";
+  const sources = settings.baseModelSources;
 
   return (
     <LegalPage title="Terms of Use" effectiveDate={legal.effectiveDate}>
@@ -147,15 +150,28 @@ export default function TermsPage() {
       </p>
 
       <h2>7. How responses are generated</h2>
-      <p>
-        {assistantName} is our own assistant: we design how it behaves and we operate the Service.
-        To generate responses, {assistantName} uses large language models, some of which are
-        operated by third-party providers. For this purpose your messages and the relevant
-        conversation history are transmitted to those providers and processed by them on our
-        behalf. Details are set out in our <Link href="/privacy">Privacy Policy</Link>. The
-        providers&apos; usage policies also restrict what the models may be used for; requests that
-        conflict with those policies may be declined.
-      </p>
+      {selfHosted ? (
+        <p>
+          {assistantName} is our own assistant. It runs on language models that we develop and
+          operate ourselves, on the basis of openly available models
+          {sources ? ` from ${sources}` : ""}, which remain subject to their respective licences.
+          Our models are test versions that are still in development, so their behaviour and
+          quality can change. Your messages and the relevant conversation history are processed on
+          servers that we operate; they are not transmitted to external AI providers. Details are
+          set out in our <Link href="/privacy">Privacy Policy</Link>. Requests that conflict with
+          the <Link href="/acceptable-use">Acceptable Use Policy</Link> may be declined.
+        </p>
+      ) : (
+        <p>
+          {assistantName} is our own assistant: we design how it behaves and we operate the
+          Service. To generate responses, {assistantName} uses large language models, some of which
+          are operated by third-party providers. For this purpose your messages and the relevant
+          conversation history are transmitted to those providers and processed by them on our
+          behalf. Details are set out in our <Link href="/privacy">Privacy Policy</Link>. The
+          providers&apos; usage policies also restrict what the models may be used for; requests
+          that conflict with those policies may be declined.
+        </p>
+      )}
 
       <h2>8. Our rights</h2>
       <p>

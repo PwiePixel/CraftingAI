@@ -8,6 +8,13 @@ describe("settings", () => {
     expect(getSettings().defaultTier).toBe("lite");
   });
 
+  it("describes the stock set-up truthfully: models run at an external provider", () => {
+    // The public pages only claim self-hosted models once the operator says so.
+    expect(DEFAULT_SETTINGS.modelHosting).toBe("third-party");
+    expect(getSettings().modelHosting).toBe("third-party");
+    expect(() => updateSettings({ modelHosting: "somewhere" })).toThrow();
+  });
+
   it("merges partial updates and keeps everything else", () => {
     const next = updateSettings({ siteName: "Acme Chat", tiers: { pro: { dailyLimit: 25 } } });
     expect(next.siteName).toBe("Acme Chat");

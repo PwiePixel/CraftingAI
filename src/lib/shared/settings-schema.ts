@@ -34,11 +34,22 @@ export const legalSettingsSchema = z.object({
   effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use the format YYYY-MM-DD"),
 });
 
+/**
+ * Where the language models run. This is a fact about the deployment that
+ * only the operator knows, and it decides what the public pages say about how
+ * and where messages are processed.
+ */
+export const MODEL_HOSTING = ["third-party", "self-hosted"] as const;
+export type ModelHosting = (typeof MODEL_HOSTING)[number];
+
 export const settingsSchema = z.object({
   siteName: z.string().trim().min(1).max(40),
   assistantName: z.string().trim().min(1).max(40),
   tagline: z.string().trim().max(120),
   announcement: z.string().trim().max(300),
+  modelHosting: z.enum(MODEL_HOSTING),
+  /** For self-hosted models: whose openly available models they build on. */
+  baseModelSources: z.string().trim().max(120),
   /** Shows the "in development" notice on the home page. */
   inDevelopment: z.boolean(),
   registrationOpen: z.boolean(),
@@ -70,6 +81,9 @@ export const DEFAULT_SETTINGS: Settings = {
   assistantName: "Lishia",
   tagline: "Your everyday AI assistant.",
   announcement: "",
+  // The stock installation sends messages to an external provider's API.
+  modelHosting: "third-party",
+  baseModelSources: "Meta and OpenAI",
   inDevelopment: true,
   registrationOpen: true,
   maxDailyRegistrations: 100,

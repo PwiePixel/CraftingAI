@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { useToast } from "@/components/toast";
-import { Alert, Button, Card, CardHeader, Field, Input, Switch, Textarea } from "@/components/ui";
+import { Alert, Button, Card, CardHeader, Field, Input, Select, Switch, Textarea } from "@/components/ui";
 import { api, errorMessage } from "@/lib/client/api";
-import type { Settings } from "@/lib/shared/settings-schema";
+import type { ModelHosting, Settings } from "@/lib/shared/settings-schema";
 
 export function SettingsForm({ settings }: { settings: Settings }) {
   const router = useRouter();
@@ -20,6 +20,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
     String(settings.maxDailyRegistrations),
   );
   const [customInstructions, setCustomInstructions] = useState(settings.customInstructions);
+  const [modelHosting, setModelHosting] = useState<ModelHosting>(settings.modelHosting);
+  const [baseModelSources, setBaseModelSources] = useState(settings.baseModelSources);
   const [legal, setLegal] = useState({
     ...settings.legal,
     minimumAge: String(settings.legal.minimumAge),
@@ -43,6 +45,8 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           registrationOpen,
           maxDailyRegistrations: Number(maxDailyRegistrations),
           customInstructions,
+          modelHosting,
+          baseModelSources,
           legal: { ...legal, minimumAge: Number(legal.minimumAge) },
         },
       });
@@ -125,6 +129,43 @@ export function SettingsForm({ settings }: { settings: Settings }) {
             label="Show the “in development” notice"
             description="Tells visitors on the home page that the project is still being built. Turn it off once you consider the site finished."
           />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Where the models run"
+          description="Decides what the home page, the Terms of Use and the Privacy Policy tell visitors about how and where their messages are processed."
+        />
+        <div className="flex flex-col gap-4 p-5">
+          <Field
+            label="Language models"
+            htmlFor="model-hosting"
+            hint="Choose “our own servers” only if no message content leaves your infrastructure. If any request is answered through an outside provider's API, keep the first option; otherwise the Privacy Policy would tell your users something untrue."
+          >
+            <Select
+              id="model-hosting"
+              value={modelHosting}
+              onChange={(event) => setModelHosting(event.target.value as ModelHosting)}
+            >
+              <option value="third-party">Run at external AI providers (through their API)</option>
+              <option value="self-hosted">Our own models, running on our own servers</option>
+            </Select>
+          </Field>
+          {modelHosting === "self-hosted" ? (
+            <Field
+              label="Based on openly available models from"
+              htmlFor="base-model-sources"
+              hint="Completes the sentence “…our own test models, which we are developing on the basis of openly available models from …”. Name only publishers whose open models you actually build on."
+            >
+              <Input
+                id="base-model-sources"
+                maxLength={120}
+                value={baseModelSources}
+                onChange={(event) => setBaseModelSources(event.target.value)}
+              />
+            </Field>
+          ) : null}
         </div>
       </Card>
 

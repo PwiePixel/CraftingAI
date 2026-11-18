@@ -20,6 +20,11 @@ dashboard for you, and a one-command installer that sets up HTTPS on your own do
   third-party AI providers process the requests, without naming them. (The vendor only appears
   where you, the operator, configure the API key: in the installer, the configuration file and
   the admin dashboard.)
+- **Texts that follow your set-up**: under Admin → Settings → *Where the models run* you state
+  whether the language models run at external providers (the default, and what the stock
+  installation does) or on servers you operate yourself. The home page, the Terms of Use and the
+  Privacy Policy switch their wording accordingly. Select "our own servers" only when no message
+  content leaves your infrastructure.
 
 Built with Next.js (App Router), React, TypeScript, Tailwind CSS and SQLite.
 
