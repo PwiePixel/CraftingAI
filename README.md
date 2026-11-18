@@ -184,6 +184,11 @@ sudo lishia-update
 
 `sudo bash install.sh --update` does the same; add `--force` to rebuild although nothing changed.
 
+If you maintain a customised copy of this project, an older `settings-schema.ts` can lack
+settings that newer code expects. Before every build the installer adds such missing settings
+with their defaults to the copy it builds (`scripts/repair-source.mjs`); your checkout itself
+is not modified.
+
 **Automatic updates:** if you said yes during installation, a timer runs that update every night
 around 04:00, and the operating system installs its own security updates (`unattended-upgrades`).
 The web server and Node.js packages are refreshed during each update as well.
@@ -288,7 +293,7 @@ npm run lint && npm run typecheck && npm test
 ```
 install.sh                 Server installer and updater (Node.js, Caddy, systemd, firewall, backups)
 installer.sh               Alias for install.sh
-scripts/                   Admin command line, database backup, mock AI provider
+scripts/                   Admin command line, database backup, source repair, mock AI provider
 src/proxy.ts               Per-request Content-Security-Policy
 src/app/(auth)             Sign-in and registration
 src/app/(app)              Chat and account settings

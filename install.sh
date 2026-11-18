@@ -562,6 +562,16 @@ as_app() {
 
 BUILD_LOG="/var/log/${APP_NAME}-build.log"
 cd "$RELEASE_DIR"
+
+# A settings file kept from an earlier or customised version can lack settings
+# the rest of the code relies on, which would stop the build. Add what is
+# missing here, in the copy that is being built; your checkout is not touched.
+if [[ -f scripts/repair-source.mjs ]]; then
+  REPAIR_NOTE="$(as_app node scripts/repair-source.mjs . 2>&1 || true)"
+  case "$REPAIR_NOTE" in
+    *"added missing settings"*) info "Compatibility fix: ${REPAIR_NOTE#repair-source: }" ;;
+  esac
+fi
 info "Installing dependencies ..."
 as_app npm ci --no-audit --no-fund --loglevel=error >"$BUILD_LOG" 2>&1 ||
   { tail -n 40 "$BUILD_LOG" >&2; die "Installing the dependencies failed. Full log: ${BUILD_LOG}"; }
