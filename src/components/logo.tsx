@@ -17,7 +17,10 @@ export function LogoMark({ size = 28, className }: { size?: number; className?: 
       alt=""
       aria-hidden="true"
       decoding="async"
-      className={cn("shrink-0 rounded-[25%] object-cover", className)}
+      // Fixed dimensions: without them the image would be stretched to the
+      // full height of a row when it sits next to taller content.
+      style={{ width: size, height: size }}
+      className={cn("flex-none self-start rounded-[25%] object-cover", className)}
     />
   );
 }
