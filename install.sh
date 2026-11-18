@@ -186,11 +186,21 @@ case "${ID:-}" in
   *) warn "Untested distribution '${ID:-unknown}'. Continuing, but Debian or Ubuntu is recommended." ;;
 esac
 
-# Only one installation or update may run at a time (manual run vs. nightly timer).
-LOCK_DIR="/run/lock"
-[[ -d "$LOCK_DIR" ]] || LOCK_DIR="/var/lock"
-exec 9>"${LOCK_DIR}/${APP_NAME}-install.lock"
-flock -n 9 || die "Another installation or update is already running. Try again in a few minutes."
+# Only one installation or update may run at a time (manual run vs. nightly
+# timer). The script re-runs itself under "flock", which holds the lock in a
+# separate process: programs started from here (such as the service itself)
+# can therefore never keep the lock alive by accident.
+if [[ "${LISHIA_LOCKED:-0}" != "1" ]]; then
+  LOCK_DIR="/run/lock"
+  [[ -d "$LOCK_DIR" ]] || LOCK_DIR="/var/lock"
+  LOCK_STATUS=0
+  LISHIA_LOCKED=1 flock --nonblock --close --conflict-exit-code 75 \
+    "${LOCK_DIR}/${APP_NAME}-install.lock" bash "${BASH_SOURCE[0]}" "$@" || LOCK_STATUS=$?
+  if [[ "$LOCK_STATUS" -eq 75 ]]; then
+    die "Another installation or update is already running. Try again in a few minutes."
+  fi
+  exit "$LOCK_STATUS"
+fi
 
 if [[ "${LISHIA_SOURCE_READY:-0}" != "1" ]]; then
   printf '\n%s%s installer%s\n' "$BOLD" "lishia.bond" "$RESET"
