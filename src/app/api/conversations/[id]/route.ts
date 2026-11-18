@@ -2,8 +2,10 @@ import { z } from "zod";
 import { apiUser } from "@/lib/server/auth";
 import {
   deleteConversation,
+  findMessageSeq,
   getConversation,
-  listMessageRows,
+  listMessagePage,
+  MESSAGE_PAGE_SIZE,
   renameConversation,
   toChatMessage,
   toSummary,
@@ -17,14 +19,27 @@ type Context = { params: Promise<{ id: string }> };
 
 const notFound = () => new ApiError(404, "not_found", "This conversation does not exist.");
 
-export const GET = route<Context>(async (_request, { params }) => {
+/**
+ * Returns one page of messages, newest page first. `?before=<message id>`
+ * continues with the messages that precede the given one.
+ */
+export const GET = route<Context>(async (request, { params }) => {
   const { user } = await apiUser();
   const { id } = await params;
   const conversation = getConversation(user.id, id);
   if (!conversation) throw notFound();
+
+  const before = request.nextUrl.searchParams.get("before");
+  let beforeSeq: number | undefined;
+  if (before) {
+    beforeSeq = findMessageSeq(conversation.id, before.slice(0, 64));
+    if (beforeSeq === undefined) throw new ApiError(400, "invalid_request", "Unknown message.");
+  }
+  const page = listMessagePage(conversation.id, MESSAGE_PAGE_SIZE, beforeSeq);
   return json({
     conversation: toSummary(conversation),
-    messages: listMessageRows(conversation.id).map(toChatMessage),
+    messages: page.rows.map(toChatMessage),
+    hasMore: page.hasMore,
   });
 });
 

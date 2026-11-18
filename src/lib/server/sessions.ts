@@ -14,7 +14,7 @@ const TOUCH_INTERVAL_MS = 5 * 60 * 1000;
  * attribute, so the cookie cannot be set or overwritten from a sub-domain.
  */
 export function sessionCookieName(): string {
-  return env.isHttps ? "__Host-crafting_session" : "crafting_session";
+  return env.isHttps ? "__Host-lishia_session" : "lishia_session";
 }
 
 export interface SessionRow {

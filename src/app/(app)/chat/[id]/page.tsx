@@ -4,7 +4,7 @@ import { ChatRoute } from "@/components/chat/chat-route";
 import { getAuth, requireUser } from "@/lib/server/auth";
 import {
   getConversation,
-  listMessageRows,
+  listMessagePage,
   toChatMessage,
   toSummary,
 } from "@/lib/server/conversations";
@@ -25,11 +25,14 @@ export default async function ConversationPage({ params }: Props) {
   const conversation = getConversation(user.id, id);
   if (!conversation) notFound();
 
+  // Only the most recent messages are sent; earlier ones load on request.
+  const page = listMessagePage(conversation.id);
   return (
     <ChatRoute
       initial={{
         conversation: toSummary(conversation),
-        messages: listMessageRows(conversation.id).map(toChatMessage),
+        messages: page.rows.map(toChatMessage),
+        hasEarlier: page.hasMore,
       }}
     />
   );

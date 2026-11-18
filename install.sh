@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# CraftingAI installer for Debian and Ubuntu servers.
+# lishia.bond installer for Debian and Ubuntu servers.
 #
 #   sudo bash install.sh              install, or update an existing installation
 #   sudo bash install.sh --reconfigure   ask all questions again
@@ -14,18 +14,19 @@
 #   5. Sets up a daily database backup and (optionally) the firewall.
 #
 # Every answer can also be supplied as an environment variable for unattended
-# installs: DOMAIN, ACME_EMAIL, ANTHROPIC_API_KEY, SITE_NAME, ADMIN_EMAIL,
-# ADMIN_PASSWORD, DAILY_BUDGET_USD, SETUP_FIREWALL (yes/no), ASSUME_YES=1.
+# installs: DOMAIN, ACME_EMAIL, ANTHROPIC_API_KEY, SITE_NAME, ASSISTANT_NAME,
+# ADMIN_EMAIL, ADMIN_PASSWORD, CONTACT_EMAIL, DAILY_BUDGET_USD,
+# SETUP_FIREWALL (yes/no), ASSUME_YES=1.
 # SKIP_DNS_CHECK=1 and SKIP_KEY_CHECK=1 skip the respective pre-flight checks.
 
 set -Eeuo pipefail
 
-APP_NAME="craftingai"
-APP_USER="craftingai"
-APP_DIR="/opt/craftingai"
-DATA_DIR="/var/lib/craftingai"
-CONF_DIR="/etc/craftingai"
-ENV_FILE="${CONF_DIR}/craftingai.env"
+APP_NAME="lishia"
+APP_USER="lishia"
+APP_DIR="/opt/lishia"
+DATA_DIR="/var/lib/lishia"
+CONF_DIR="/etc/lishia"
+ENV_FILE="${CONF_DIR}/lishia.env"
 RELEASES_DIR="${APP_DIR}/releases"
 CURRENT_LINK="${APP_DIR}/current"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
@@ -40,7 +41,7 @@ for arg in "$@"; do
   case "$arg" in
     --reconfigure) RECONFIGURE=1 ;;
     -h | --help)
-      sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *)
@@ -70,7 +71,9 @@ die() {
 SWAP_FILE=""
 RELEASE_DIR=""
 RELEASE_LIVE=0
+WORK_DIR=""
 cleanup() {
+  if [[ -n "$WORK_DIR" && -d "$WORK_DIR" ]]; then rm -rf "$WORK_DIR"; fi
   if [[ -n "$SWAP_FILE" && -f "$SWAP_FILE" ]]; then
     swapoff "$SWAP_FILE" 2>/dev/null || true
     rm -f "$SWAP_FILE"
@@ -128,7 +131,8 @@ confirm() { # confirm "Question" default(y/n)
 }
 
 valid_domain() { [[ "$1" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]]; }
-valid_email() { [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; }
+# Deliberately strict: these values are written into configuration files.
+valid_email() { [[ "$1" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$ ]]; }
 
 # ----------------------------------------------------------- pre-flight ----
 
@@ -147,7 +151,11 @@ case "${ID:-}" in
   *) warn "Untested distribution '${ID:-unknown}'. Continuing, but Debian or Ubuntu is recommended." ;;
 esac
 
-printf '\n%s%s installer%s\n' "$BOLD" "CraftingAI" "$RESET"
+# Private scratch space: nothing sensitive is ever placed in a shared directory.
+WORK_DIR="$(mktemp -d)"
+chmod 700 "$WORK_DIR"
+
+printf '\n%s%s installer%s\n' "$BOLD" "lishia.bond" "$RESET"
 printf '%sSelf-hosted AI chat with automatic HTTPS.%s\n' "$DIM" "$RESET"
 
 UPDATE=0
@@ -172,7 +180,7 @@ if [[ "$UPDATE" -eq 0 ]]; then
   fi
 
   while true; do
-    ask DOMAIN "Domain for the site (for example chat.example.com)"
+    ask DOMAIN "Domain for the site" "lishia.bond"
     DOMAIN="$(printf '%s' "$DOMAIN" | tr '[:upper:]' '[:lower:]' | sed -e 's#^https\?://##' -e 's#/.*$##')"
     valid_domain "$DOMAIN" && break
     warn "'$DOMAIN' is not a valid domain name."
@@ -197,11 +205,19 @@ if [[ "$UPDATE" -eq 0 ]]; then
   done
 
   while true; do
-    ask SITE_NAME "Name of your site" "CraftingAI"
+    ask SITE_NAME "Name of your site" "lishia.bond"
     if [[ "$SITE_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._-]{0,38}$ ]]; then break; fi
     warn "Use 1-39 letters, digits, spaces, dots, underscores or hyphens. You can change it later in the admin dashboard."
     [[ "$INTERACTIVE" == "1" ]] || die "Invalid SITE_NAME."
     SITE_NAME=""
+  done
+
+  while true; do
+    ask ASSISTANT_NAME "Name of the AI assistant" "Lishia"
+    if [[ "$ASSISTANT_NAME" =~ ^[A-Za-z0-9][A-Za-z0-9\ ._-]{0,38}$ ]]; then break; fi
+    warn "Use 1-39 letters, digits, spaces, dots, underscores or hyphens."
+    [[ "$INTERACTIVE" == "1" ]] || die "Invalid ASSISTANT_NAME."
+    ASSISTANT_NAME=""
   done
 
   while true; do
@@ -211,6 +227,22 @@ if [[ "$UPDATE" -eq 0 ]]; then
     [[ "$INTERACTIVE" == "1" ]] || die "Invalid ADMIN_EMAIL."
     ADMIN_EMAIL=""
   done
+
+  # Shown in the legal pages. Kept separate from the administrator's sign-in
+  # address on purpose, so that address does not have to be published.
+  if [[ -z "${CONTACT_EMAIL+x}" ]]; then
+    CONTACT_EMAIL=""
+    if [[ "$INTERACTIVE" == "1" ]]; then
+      while true; do
+        read -r -p "    Public contact email shown on the site (optional, Enter to skip): " CONTACT_EMAIL </dev/tty
+        [[ -z "$CONTACT_EMAIL" ]] && break
+        valid_email "$CONTACT_EMAIL" && break
+        warn "Please enter a valid email address, or leave it empty."
+      done
+    fi
+  elif [[ -n "$CONTACT_EMAIL" ]]; then
+    valid_email "$CONTACT_EMAIL" || die "Invalid CONTACT_EMAIL."
+  fi
 
   GENERATED_PASSWORD=0
   if [[ -z "${ADMIN_PASSWORD:-}" && "$INTERACTIVE" == "1" ]]; then
@@ -265,9 +297,8 @@ node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo
 
 if ! command -v node >/dev/null 2>&1 || [[ "$(node_major)" -lt "$MIN_NODE_MAJOR" ]]; then
   info "Installing Node.js ${NODE_MAJOR} from NodeSource ..."
-  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o /tmp/nodesource_setup.sh
-  bash /tmp/nodesource_setup.sh >/dev/null
-  rm -f /tmp/nodesource_setup.sh
+  curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" -o "${WORK_DIR}/nodesource_setup.sh"
+  bash "${WORK_DIR}/nodesource_setup.sh" >/dev/null
   apt-get install -y -qq nodejs >/dev/null
 fi
 [[ "$(node_major)" -ge "$MIN_NODE_MAJOR" ]] || die "Node.js ${MIN_NODE_MAJOR} or newer is required (found $(node -v 2>/dev/null || echo none))."
@@ -317,7 +348,8 @@ if [[ "$UPDATE" -eq 0 ]]; then
     elif [[ -n "$SERVER_IP4$SERVER_IP6" ]] &&
       ! grep -qwF -e "${SERVER_IP4:-none}" -e "${SERVER_IP6:-none}" <<<"$DOMAIN_IPS"; then
       warn "${DOMAIN} resolves to ${DOMAIN_IPS}but this server is ${SERVER_IP4:-?} ${SERVER_IP6:-}."
-      warn "If you use a proxy such as Cloudflare this can be fine; otherwise fix the DNS record."
+      warn "Fix the DNS record. If a CDN or proxy (for example Cloudflare) sits in front of this"
+      warn "server on purpose, see \"Running behind a CDN\" in the README before you continue."
       confirm "Continue anyway?" y || die "Aborted. Fix DNS and run the installer again."
     else
       ok "${DOMAIN} points to this server"
@@ -367,7 +399,8 @@ if [[ "$UPDATE" -eq 0 ]]; then
     printf 'APP_SECRET=%s\n' "${OLD_SECRET:-$(openssl rand -hex 32)}"
     printf 'ANTHROPIC_API_KEY=%s\n' "$ANTHROPIC_API_KEY"
     printf 'SITE_NAME="%s"\n' "$SITE_NAME"
-    printf 'CONTACT_EMAIL=%s\n' "$ADMIN_EMAIL"
+    printf 'ASSISTANT_NAME="%s"\n' "$ASSISTANT_NAME"
+    printf 'CONTACT_EMAIL="%s"\n' "$CONTACT_EMAIL"
     printf 'DAILY_BUDGET_USD=%s\n' "$DAILY_BUDGET_USD"
     printf 'LEGAL_EFFECTIVE_DATE=%s\n' "${OLD_EFFECTIVE_DATE:-$(date -u +%F)}"
   } >"${ENV_FILE}.new"
@@ -402,7 +435,7 @@ step "Building the application (this takes a few minutes)"
 # Small servers run out of memory during the build; add temporary swap if needed.
 AVAILABLE_MB="$(awk '/MemAvailable|SwapFree/ {sum += $2} END {print int(sum / 1024)}' /proc/meminfo)"
 if [[ "$AVAILABLE_MB" -lt 2000 ]]; then
-  SWAP_FILE="/var/tmp/${APP_NAME}-build.swap"
+  SWAP_FILE="/${APP_NAME}-build.swap"
   if fallocate -l 2G "$SWAP_FILE" 2>/dev/null && chmod 600 "$SWAP_FILE" &&
     mkswap "$SWAP_FILE" >/dev/null 2>&1 && swapon "$SWAP_FILE" 2>/dev/null; then
     info "Low memory (${AVAILABLE_MB} MB free): using 2 GB of temporary swap for the build."
@@ -427,7 +460,7 @@ as_app() {
     NEXT_TELEMETRY_DISABLED=1 "${PASS_ENV[@]}" "$@"
 }
 
-BUILD_LOG="/var/tmp/${APP_NAME}-build.log"
+BUILD_LOG="/var/log/${APP_NAME}-build.log"
 cd "$RELEASE_DIR"
 info "Installing dependencies ..."
 as_app npm ci --no-audit --no-fund --loglevel=error >"$BUILD_LOG" 2>&1 ||
@@ -453,7 +486,7 @@ write_units() { # write_units <release directory>
   local release="$1"
   cat >"$SERVICE_FILE" <<UNIT
 [Unit]
-Description=CraftingAI web application
+Description=lishia.bond web application
 After=network-online.target
 Wants=network-online.target
 
@@ -498,7 +531,7 @@ UNIT
 
   cat >"/etc/systemd/system/${APP_NAME}-backup.service" <<UNIT
 [Unit]
-Description=CraftingAI database backup
+Description=lishia.bond database backup
 
 [Service]
 Type=oneshot
@@ -517,7 +550,7 @@ UNIT
 
   cat >"/etc/systemd/system/${APP_NAME}-backup.timer" <<UNIT
 [Unit]
-Description=Daily CraftingAI database backup
+Description=Daily lishia.bond database backup
 
 [Timer]
 OnCalendar=daily
@@ -689,7 +722,7 @@ if [[ "$UPDATE" -eq 0 ]]; then
     printf '  Admin password:  %s%s%s   (shown only once: store it now and change it after signing in)\n' "$BOLD" "$ADMIN_PASSWORD" "$RESET"
   fi
   printf '\n  Next steps:\n'
-  printf '    1. Sign in and open Admin -> Settings to add your legal details (operator, address).\n'
+  printf '    1. Sign in and open Admin -> Settings to add your legal details (operator, address, contact).\n'
   printf '    2. Review limits and the daily budget under Admin -> Models & limits.\n'
 else
   printf '  %s has been updated and restarted.\n' "https://${DOMAIN}"

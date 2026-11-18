@@ -139,7 +139,7 @@ function prune(db: Database.Database): void {
 }
 
 function open(): Database.Database {
-  const file = process.env.DATABASE_FILE ?? path.join(env.dataDir, "craftingai.db");
+  const file = process.env.DATABASE_FILE ?? path.join(env.dataDir, "lishia.db");
   if (file !== ":memory:") {
     fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   }
@@ -162,15 +162,15 @@ function open(): Database.Database {
 }
 
 // Reuse one connection across hot reloads in development.
-const globalStore = globalThis as unknown as { __craftingDb?: Database.Database };
+const globalStore = globalThis as unknown as { __lishiaDb?: Database.Database };
 
 export function getDb(): Database.Database {
-  if (!globalStore.__craftingDb) globalStore.__craftingDb = open();
-  return globalStore.__craftingDb;
+  if (!globalStore.__lishiaDb) globalStore.__lishiaDb = open();
+  return globalStore.__lishiaDb;
 }
 
 /** Test helper: drop the cached connection so the next call opens a fresh one. */
 export function resetDbForTests(): void {
-  globalStore.__craftingDb?.close();
-  globalStore.__craftingDb = undefined;
+  globalStore.__lishiaDb?.close();
+  globalStore.__lishiaDb = undefined;
 }

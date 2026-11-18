@@ -6,18 +6,18 @@ interface Bucket {
 }
 
 const store = globalThis as unknown as {
-  __craftingRate?: Map<string, Bucket>;
-  __craftingRateSweep?: number;
+  __lishiaRate?: Map<string, Bucket>;
+  __lishiaRateSweep?: number;
 };
 
 function buckets(): Map<string, Bucket> {
-  store.__craftingRate ??= new Map();
-  return store.__craftingRate;
+  store.__lishiaRate ??= new Map();
+  return store.__lishiaRate;
 }
 
 function sweep(now: number): void {
-  if (store.__craftingRateSweep && now - store.__craftingRateSweep < 60_000) return;
-  store.__craftingRateSweep = now;
+  if (store.__lishiaRateSweep && now - store.__lishiaRateSweep < 60_000) return;
+  store.__lishiaRateSweep = now;
   const map = buckets();
   for (const [key, bucket] of map) {
     if (bucket.resetAt <= now) map.delete(key);

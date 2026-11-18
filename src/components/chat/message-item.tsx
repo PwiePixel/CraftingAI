@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useState, useSyncExternalStore } from "react";
 import { Check, Copy, RefreshCw } from "lucide-react";
 import { LogoMark } from "@/components/logo";
 import type { ChatMessage } from "@/lib/shared/types";
@@ -11,6 +11,17 @@ export interface UiMessage extends ChatMessage {
   pending?: boolean;
   /** Explanation shown with a failed reply. */
   notice?: string;
+}
+
+const noopSubscribe = () => () => {};
+
+/** False while rendering on the server and during hydration, true afterwards. */
+function useHydrated(): boolean {
+  return useSyncExternalStore(
+    noopSubscribe,
+    () => true,
+    () => false,
+  );
 }
 
 const REFUSED_TEXT =
@@ -68,6 +79,11 @@ export const MessageItem = memo(function MessageItem({
   canRegenerate: boolean;
   onRegenerate: () => void;
 }) {
+  // Parsing and typesetting Markdown is CPU-heavy. It runs in the reader's
+  // browser only; the server sends the plain text, which keeps page loads of
+  // long conversations cheap for the server.
+  const hydrated = useHydrated();
+
   if (message.role === "user") {
     return (
       <div className="flex justify-end" data-role="user">
@@ -97,7 +113,11 @@ export const MessageItem = memo(function MessageItem({
         ) : refused ? (
           <p className="text-[0.975rem] leading-relaxed text-fg-muted">{REFUSED_TEXT}</p>
         ) : message.content ? (
-          <Markdown content={message.content} />
+          hydrated ? (
+            <Markdown content={message.content} />
+          ) : (
+            <div className="md whitespace-pre-wrap">{message.content}</div>
+          )
         ) : null}
 
         {message.status === "stopped" ? (

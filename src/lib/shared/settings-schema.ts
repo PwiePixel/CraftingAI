@@ -39,7 +39,11 @@ export const settingsSchema = z.object({
   assistantName: z.string().trim().min(1).max(40),
   tagline: z.string().trim().max(120),
   announcement: z.string().trim().max(300),
+  /** Shows the "in development" notice on the home page. */
+  inDevelopment: z.boolean(),
   registrationOpen: z.boolean(),
+  /** New accounts allowed per UTC day across the whole site. 0 disables the cap. */
+  maxDailyRegistrations: z.number().int().min(0).max(1_000_000),
   /** Extra instructions appended to the built-in system prompt. */
   customInstructions: z.string().max(4_000),
   defaultTier: z.enum(TIER_IDS),
@@ -62,18 +66,20 @@ export type Settings = z.infer<typeof settingsSchema>;
 export const TERMS_VERSION = "2026-11-18";
 
 export const DEFAULT_SETTINGS: Settings = {
-  siteName: "CraftingAI",
-  assistantName: "Crafting",
+  siteName: "lishia.bond",
+  assistantName: "Lishia",
   tagline: "Your everyday AI assistant.",
   announcement: "",
+  inDevelopment: true,
   registrationOpen: true,
+  maxDailyRegistrations: 100,
   customInstructions: "",
   defaultTier: "lite",
   dailyBudgetUsd: 10,
   maxMessageChars: 16_000,
   tiers: {
     lite: {
-      label: "Craft Lite",
+      label: "Lishia Lite",
       description: "Fast and efficient for everyday questions.",
       model: "claude-haiku-5-5",
       enabled: true,
@@ -86,7 +92,7 @@ export const DEFAULT_SETTINGS: Settings = {
       outputPricePerMTok: 0.5,
     },
     pro: {
-      label: "Craft Pro",
+      label: "Lishia Pro",
       description: "More depth for writing, analysis and code.",
       model: "claude-sonnet-5-5",
       enabled: true,
@@ -99,7 +105,7 @@ export const DEFAULT_SETTINGS: Settings = {
       outputPricePerMTok: 10,
     },
     ultra: {
-      label: "Craft Ultra",
+      label: "Lishia Ultra",
       description: "Our most capable model for the hardest problems.",
       model: "claude-opus-5-5",
       enabled: true,

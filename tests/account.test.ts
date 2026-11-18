@@ -51,6 +51,17 @@ describe("registration", () => {
     expect((await rejection(registerAccount(input("burst5@example.com"), "198.51.100.77"))).status).toBe(429);
   });
 
+  it("stops accepting new accounts once the site-wide daily ceiling is reached", async () => {
+    updateSettings({ maxDailyRegistrations: 1 });
+    // Earlier tests in this file already created accounts today.
+    const error = await rejection(registerAccount(input("ceiling@example.com"), "198.51.100.200"));
+    expect(error.code).toBe("registration_limit");
+    expect(findUserByEmail("ceiling@example.com")).toBeUndefined();
+    updateSettings({ maxDailyRegistrations: 0 });
+    await registerAccount(input("ceiling@example.com"), "198.51.100.200");
+    updateSettings({ maxDailyRegistrations: 100 });
+  });
+
   it("silently refuses bots that fill the hidden field", async () => {
     const bot = { ...input("bot@example.com"), website: "https://spam.example" };
     await rejection(registerAccount(bot, null));
@@ -69,12 +80,30 @@ describe("sign-in", () => {
     expect(unknown.message).toBe(wrong.message);
   });
 
-  it("locks out repeated attempts on one account", async () => {
+  it("slows down guessing from one network without locking out the real owner", async () => {
     await registerAccount(input("target@example.com"), null);
-    for (let i = 0; i < 10; i += 1) {
-      await rejection(authenticate({ email: "target@example.com", password: "wrong password!!" }, null));
+    const attacker = "203.0.113.50";
+    for (let i = 0; i < 8; i += 1) {
+      await rejection(authenticate({ email: "target@example.com", password: "wrong password!!" }, attacker));
     }
-    const blocked = await rejection(authenticate({ email: "target@example.com", password: "correct horse battery" }, null));
+    // The attacker's network is now blocked for this account, even with the right password.
+    const blocked = await rejection(
+      authenticate({ email: "target@example.com", password: "correct horse battery" }, attacker),
+    );
+    expect(blocked.status).toBe(429);
+    // The owner, signing in from somewhere else, is not affected.
+    const owner = await authenticate({ email: "target@example.com", password: "correct horse battery" }, "198.51.100.9");
+    expect(owner.email).toBe("target@example.com");
+  });
+
+  it("treats a whole IPv6 /64 as one source", async () => {
+    await registerAccount(input("v6@example.com"), null);
+    for (let i = 0; i < 8; i += 1) {
+      await rejection(authenticate({ email: "v6@example.com", password: "wrong password!!" }, `2001:db8:1:2::${i + 1}`));
+    }
+    const blocked = await rejection(
+      authenticate({ email: "v6@example.com", password: "correct horse battery" }, "2001:db8:1:2:ffff::99"),
+    );
     expect(blocked.status).toBe(429);
   });
 

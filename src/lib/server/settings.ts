@@ -28,35 +28,42 @@ export function deepMerge<T>(base: T, patch: unknown): T {
   return result as T;
 }
 
-/** Defaults, seeded once from the environment written by the installer. */
+/**
+ * Defaults, seeded from the environment written by the installer. Every value
+ * is applied on its own, so one unusable value cannot discard the others.
+ */
 function defaults(): Settings {
-  const fromEnv: Json = {};
-  const legal: Json = {};
+  const candidates: Json[] = [];
   if (process.env.SITE_NAME) {
-    fromEnv.siteName = process.env.SITE_NAME;
-    legal.operatorName = process.env.OPERATOR_NAME ?? process.env.SITE_NAME;
+    candidates.push({ siteName: process.env.SITE_NAME });
+    candidates.push({ legal: { operatorName: process.env.OPERATOR_NAME ?? process.env.SITE_NAME } });
   }
-  if (process.env.ASSISTANT_NAME) fromEnv.assistantName = process.env.ASSISTANT_NAME;
-  if (process.env.CONTACT_EMAIL) legal.contactEmail = process.env.CONTACT_EMAIL;
-  if (process.env.LEGAL_EFFECTIVE_DATE) legal.effectiveDate = process.env.LEGAL_EFFECTIVE_DATE;
+  if (process.env.ASSISTANT_NAME) candidates.push({ assistantName: process.env.ASSISTANT_NAME });
+  if (process.env.CONTACT_EMAIL) candidates.push({ legal: { contactEmail: process.env.CONTACT_EMAIL } });
+  if (process.env.LEGAL_EFFECTIVE_DATE) {
+    candidates.push({ legal: { effectiveDate: process.env.LEGAL_EFFECTIVE_DATE } });
+  }
   if (process.env.DAILY_BUDGET_USD && Number.isFinite(Number(process.env.DAILY_BUDGET_USD))) {
-    fromEnv.dailyBudgetUsd = Number(process.env.DAILY_BUDGET_USD);
+    candidates.push({ dailyBudgetUsd: Number(process.env.DAILY_BUDGET_USD) });
   }
-  fromEnv.legal = legal;
-  const merged = deepMerge(DEFAULT_SETTINGS, fromEnv);
-  const parsed = settingsSchema.safeParse(merged);
-  return parsed.success ? parsed.data : DEFAULT_SETTINGS;
+
+  let result = DEFAULT_SETTINGS;
+  for (const candidate of candidates) {
+    const parsed = settingsSchema.safeParse(deepMerge(result, candidate));
+    if (parsed.success) result = parsed.data;
+  }
+  return result;
 }
 
 const cacheStore = globalThis as unknown as {
-  __craftingSettings?: { value: Settings; loadedAt: number };
+  __lishiaSettings?: { value: Settings; loadedAt: number };
 };
 
 /** Settings change rarely, so they are cached briefly in memory. */
 const CACHE_MS = 5_000;
 
 export function getSettings(): Settings {
-  const cached = cacheStore.__craftingSettings;
+  const cached = cacheStore.__lishiaSettings;
   if (cached && Date.now() - cached.loadedAt < CACHE_MS) return cached.value;
 
   const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(KEY) as
@@ -73,7 +80,7 @@ export function getSettings(): Settings {
   const base = defaults();
   const parsed = settingsSchema.safeParse(deepMerge(base, stored));
   const value = parsed.success ? parsed.data : base;
-  cacheStore.__craftingSettings = { value, loadedAt: Date.now() };
+  cacheStore.__lishiaSettings = { value, loadedAt: Date.now() };
   return value;
 }
 
@@ -86,12 +93,12 @@ export function updateSettings(patch: unknown): Settings {
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     )
     .run(KEY, JSON.stringify(next), Date.now());
-  cacheStore.__craftingSettings = { value: next, loadedAt: Date.now() };
+  cacheStore.__lishiaSettings = { value: next, loadedAt: Date.now() };
   return next;
 }
 
 export function invalidateSettingsCache(): void {
-  cacheStore.__craftingSettings = undefined;
+  cacheStore.__lishiaSettings = undefined;
 }
 
 /** The subset of settings that may be sent to any visitor. */

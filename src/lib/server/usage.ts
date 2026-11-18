@@ -42,6 +42,15 @@ export function costMicroUsd(tier: TierSettings, usage: UpstreamUsage): number {
   );
 }
 
+/** Rough token count for text the provider never reported on (about 3 characters per token, on the high side). */
+export function estimateTokens(chars: number): number {
+  return Math.ceil(chars / 3);
+}
+
+const INSERT_USAGE = `INSERT INTO usage_events
+    (user_id, kind, tier, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micro_usd, day, created_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
 export function recordUsage(event: {
   userId: string | null;
   kind: "chat" | "title";
@@ -50,11 +59,7 @@ export function recordUsage(event: {
   usage: UpstreamUsage;
 }): void {
   getDb()
-    .prepare(
-      `INSERT INTO usage_events
-         (user_id, kind, tier, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_micro_usd, day, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
+    .prepare(INSERT_USAGE)
     .run(
       event.userId,
       event.kind,
@@ -68,6 +73,65 @@ export function recordUsage(event: {
       utcDay(),
       Date.now(),
     );
+}
+
+/**
+ * Books a chat message *before* the provider is called. From this moment the
+ * message counts against the user's daily allowance, and its worst-case cost
+ * counts against the daily budget, so neither can be dodged by cancelling
+ * early or by sending many requests at once. `settleUsage` later replaces the
+ * worst case with the real numbers.
+ */
+export function reserveUsage(event: {
+  userId: string;
+  tierId: TierId;
+  tier: TierSettings;
+  promptChars: number;
+}): number {
+  const worstCase: UpstreamUsage = {
+    inputTokens: 0,
+    outputTokens: event.tier.maxOutputTokens,
+    cacheReadTokens: 0,
+    cacheWriteTokens: estimateTokens(event.promptChars),
+  };
+  const result = getDb()
+    .prepare(INSERT_USAGE)
+    .run(
+      event.userId,
+      "chat",
+      event.tierId,
+      event.tier.model,
+      0,
+      0,
+      0,
+      0,
+      costMicroUsd(event.tier, worstCase),
+      utcDay(),
+      Date.now(),
+    );
+  return Number(result.lastInsertRowid);
+}
+
+export function settleUsage(reservationId: number, tier: TierSettings, usage: UpstreamUsage): void {
+  getDb()
+    .prepare(
+      `UPDATE usage_events
+          SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?, cache_write_tokens = ?, cost_micro_usd = ?
+        WHERE id = ?`,
+    )
+    .run(
+      usage.inputTokens,
+      usage.outputTokens,
+      usage.cacheReadTokens,
+      usage.cacheWriteTokens,
+      costMicroUsd(tier, usage),
+      reservationId,
+    );
+}
+
+/** Cancels a reservation for a request the provider never worked on. */
+export function releaseUsage(reservationId: number): void {
+  getDb().prepare("DELETE FROM usage_events WHERE id = ?").run(reservationId);
 }
 
 export function messagesUsedToday(userId: string, tierId: TierId): number {

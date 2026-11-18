@@ -5,7 +5,7 @@ import { ArrowDown, Code, Lightbulb, Map as MapIcon, PenLine, RefreshCw } from "
 import { TopBar, useShell } from "@/components/app/shell";
 import { LogoMark } from "@/components/logo";
 import { Alert } from "@/components/ui";
-import { ApiClientError, errorMessage, toApiError } from "@/lib/client/api";
+import { api, ApiClientError, errorMessage, toApiError } from "@/lib/client/api";
 import { readChatStream } from "@/lib/client/chat-stream";
 import { reloadTo } from "@/lib/client/navigate";
 import type {
@@ -20,7 +20,10 @@ import { ModelPicker, remainingMessages } from "./model-picker";
 
 export interface InitialConversation {
   conversation: ConversationSummary;
+  /** The most recent messages. */
   messages: ChatMessage[];
+  /** True when older messages exist that have not been loaded. */
+  hasEarlier: boolean;
 }
 
 const SUGGESTIONS = [
@@ -74,13 +77,18 @@ export function ChatView({
   const [streaming, setStreaming] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
   const [showJump, setShowJump] = useState(false);
+  const [hasEarlier, setHasEarlier] = useState(initial?.hasEarlier ?? false);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [tierId, setTierId] = useState<TierId>(() =>
     chooseTier(tiers, [initial?.conversation.tier, shell.preferredTier, site.defaultTier]),
   );
 
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  /** Scroll height before older messages were inserted above the viewport. */
+  const heightBeforePrepend = useRef<number | null>(null);
   const conversationIdRef = useRef(conversationId);
   const messagesRef = useRef(messages);
 
@@ -93,8 +101,47 @@ export function ChatView({
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
-    if (element && stickToBottom.current) element.scrollTop = element.scrollHeight;
+    if (!element) return;
+    if (heightBeforePrepend.current !== null) {
+      // Keep the message the reader was looking at in place.
+      element.scrollTop += element.scrollHeight - heightBeforePrepend.current;
+      heightBeforePrepend.current = null;
+    } else if (stickToBottom.current) {
+      element.scrollTop = element.scrollHeight;
+    }
   }, [messages]);
+
+  // Content can change height without a new message (formatting applied after
+  // loading, fonts arriving, the window resizing): stay pinned to the bottom.
+  useEffect(() => {
+    const element = scrollRef.current;
+    const content = contentRef.current;
+    if (!element || !content) return;
+    const observer = new ResizeObserver(() => {
+      if (stickToBottom.current) element.scrollTop = element.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
+  async function loadEarlier() {
+    const first = messages[0];
+    if (!first || !conversationId || loadingEarlier) return;
+    setLoadingEarlier(true);
+    try {
+      const page = await api<{ messages: ChatMessage[]; hasMore: boolean }>(
+        `/api/conversations/${conversationId}?before=${encodeURIComponent(first.id)}`,
+      );
+      heightBeforePrepend.current = scrollRef.current?.scrollHeight ?? null;
+      stickToBottom.current = false;
+      setMessages((current) => [...page.messages, ...current]);
+      setHasEarlier(page.hasMore);
+    } catch (error) {
+      setRequestError(errorMessage(error));
+    } finally {
+      setLoadingEarlier(false);
+    }
+  }
 
   const tier = tiers.find((item) => item.id === tierId) ?? tiers[0];
   const remaining = tier ? remainingMessages(tier) : 0;
@@ -341,65 +388,77 @@ export function ChatView({
 
       <div className="relative flex min-h-0 flex-1 flex-col">
         <div ref={scrollRef} onScroll={onScroll} className="scroll-area flex-1 overflow-y-auto">
-          {messages.length === 0 ? (
-            <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col items-center justify-center px-4 py-10">
-              <LogoMark size={52} />
-              <h1 className="mt-6 text-center text-[1.7rem] font-semibold tracking-tight sm:text-3xl">
-                {firstName ? `Hello, ${firstName}.` : "Hello."} How can I help?
-              </h1>
-              <p className="mt-2 text-center text-fg-muted">{site.tagline}</p>
-              <div className="mt-9 grid w-full gap-2.5 sm:grid-cols-2">
-                {SUGGESTIONS.map(({ icon: Icon, title, prompt }) => (
-                  <button
-                    key={title}
-                    type="button"
-                    disabled={streaming || exhausted}
-                    onClick={() => void send(prompt)}
-                    className="flex items-start gap-3 rounded-2xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
-                  >
-                    <Icon size={18} className="mt-0.5 shrink-0 text-accent" />
-                    <span>
-                      <span className="block text-sm font-medium">{title}</span>
-                      <span className="mt-0.5 block text-[0.8125rem] leading-relaxed text-fg-muted">
-                        {prompt}
+          <div ref={contentRef} className="flex min-h-full flex-col">
+            {messages.length === 0 ? (
+              <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center px-4 py-10">
+                <LogoMark size={52} />
+                <h1 className="mt-6 text-center text-[1.7rem] font-semibold tracking-tight sm:text-3xl">
+                  {firstName ? `Hello, ${firstName}.` : "Hello."} How can I help?
+                </h1>
+                <p className="mt-2 text-center text-fg-muted">{site.tagline}</p>
+                <div className="mt-9 grid w-full gap-2.5 sm:grid-cols-2">
+                  {SUGGESTIONS.map(({ icon: Icon, title, prompt }) => (
+                    <button
+                      key={title}
+                      type="button"
+                      disabled={streaming || exhausted}
+                      onClick={() => void send(prompt)}
+                      className="flex items-start gap-3 rounded-2xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-2 disabled:opacity-50"
+                    >
+                      <Icon size={18} className="mt-0.5 shrink-0 text-accent" />
+                      <span>
+                        <span className="block text-sm font-medium">{title}</span>
+                        <span className="mt-0.5 block text-[0.8125rem] leading-relaxed text-fg-muted">
+                          {prompt}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                ))}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-4 pt-4 pb-10">
-              {messages.map((message, index) => (
-                <MessageItem
-                  key={message.id}
-                  message={message}
-                  modelLabel={labelFor(message.tier)}
-                  canRegenerate={
-                    !streaming &&
-                    !exhausted &&
-                    message.role === "assistant" &&
-                    index === messages.length - 1
-                  }
-                  onRegenerate={regenerate}
-                />
-              ))}
-              {!streaming && last?.role === "user" ? (
-                <div className="flex items-center gap-3 text-sm text-fg-muted">
-                  <span>No response was generated.</span>
+            ) : (
+              <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-4 pt-4 pb-10">
+                {hasEarlier ? (
                   <button
                     type="button"
-                    onClick={regenerate}
-                    disabled={exhausted}
-                    className="flex items-center gap-1.5 font-medium text-accent hover:underline disabled:opacity-50"
+                    onClick={loadEarlier}
+                    disabled={loadingEarlier}
+                    className="mx-auto rounded-full border border-border-strong px-4 py-1.5 text-xs font-medium text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-60"
                   >
-                    <RefreshCw size={14} />
-                    Try again
+                    {loadingEarlier ? "Loading…" : "Show earlier messages"}
                   </button>
-                </div>
-              ) : null}
-            </div>
-          )}
+                ) : null}
+                {messages.map((message, index) => (
+                  <MessageItem
+                    key={message.id}
+                    message={message}
+                    modelLabel={labelFor(message.tier)}
+                    canRegenerate={
+                      !streaming &&
+                      !exhausted &&
+                      message.role === "assistant" &&
+                      index === messages.length - 1
+                    }
+                    onRegenerate={regenerate}
+                  />
+                ))}
+                {!streaming && last?.role === "user" ? (
+                  <div className="flex items-center gap-3 text-sm text-fg-muted">
+                    <span>No response was generated.</span>
+                    <button
+                      type="button"
+                      onClick={regenerate}
+                      disabled={exhausted}
+                      className="flex items-center gap-1.5 font-medium text-accent hover:underline disabled:opacity-50"
+                    >
+                      <RefreshCw size={14} />
+                      Try again
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
         </div>
 
         {showJump ? (

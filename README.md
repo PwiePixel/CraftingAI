@@ -1,13 +1,15 @@
-# CraftingAI
+# lishia.bond
 
 A self-hosted AI chat platform: a polished chat interface for your users, an admin
 dashboard for you, and a one-command installer that sets up HTTPS on your own domain.
 
+- **Home page** that explains the project, its models and its current status (an
+  "in development" notice that you can switch off in the admin dashboard).
 - **Chat** with streaming replies, conversation history, search, rename and delete,
   Markdown with code highlighting, tables and maths, stop and regenerate, light and dark theme,
   desktop and mobile layout.
-- **Three model tiers** under your own names (by default *Craft Lite*, *Craft Pro* and
-  *Craft Ultra*). Users switch between them in the chat; each has its own daily message limit.
+- **Three model tiers** under your own names (by default *Lishia Lite*, *Lishia Pro* and
+  *Lishia Ultra*). Users switch between them in the chat; each has its own daily message limit.
 - **Admin dashboard**: usage and spend charts, user management (roles, suspension, per-user
   limits, password reset), model and limit configuration, branding, legal details, audit log.
 - **Cost control**: per-user daily limits per tier, a global daily spending cap, bounded reply
@@ -51,8 +53,9 @@ The installer asks for:
 | Domain | The address of your site and its HTTPS certificate |
 | Email for certificate notices | Let's Encrypt account |
 | Anthropic API key | Access to the AI models (input is hidden; the key is verified) |
-| Site name | Branding (changeable later) |
+| Site name and assistant name | Branding; defaults are `lishia.bond` and `Lishia` (changeable later) |
 | Administrator email and password | Your first admin account (leave the password empty to generate one) |
+| Public contact email (optional) | Shown in the legal pages; deliberately separate from the admin sign-in address |
 | Daily spending cap (USD) | Chatting pauses for the day once the estimated spend reaches it |
 | Firewall | Optionally allow only SSH, HTTP and HTTPS |
 
@@ -76,9 +79,9 @@ When it finishes, open `https://your-domain/` and sign in with the administrator
 
 | Tier | Default name | Default upstream model | Messages per user per day |
 | --- | --- | --- | --- |
-| Basic (default) | Craft Lite | `claude-haiku-5-5` | 50 |
-| Medium | Craft Pro | `claude-sonnet-5-5` | 10 |
-| Top | Craft Ultra | `claude-opus-5-5` | 3 |
+| Basic (default) | Lishia Lite | `claude-haiku-5-5` | 50 |
+| Medium | Lishia Pro | `claude-sonnet-5-5` | 10 |
+| Top | Lishia Ultra | `claude-opus-5-5` | 3 |
 
 Everything in this table can be changed under **Admin → Models & limits**: display names and
 descriptions, the upstream model, limits, maximum reply length, conversation memory, reasoning
@@ -89,8 +92,15 @@ How spending is kept under control:
 
 - **Per-user limits** per tier and day (UTC). A per-user multiplier (Admin → Users → Manage)
   raises or lowers them for individual accounts; administrators are not limited.
+- **Messages are booked before the AI is called.** A message counts against the allowance as
+  soon as it is accepted, whether or not the reply is cancelled, and its worst-case cost is held
+  against the budget until the real numbers arrive. Only requests the provider never worked on
+  are refunded.
 - **Daily budget**: when today's estimated spend reaches the cap, chatting pauses for everyone
   until midnight UTC. Set it to `0` to disable the cap.
+- **Registration ceiling**: a site-wide maximum of new accounts per day (Admin → Settings),
+  plus per-network limits, so the free allowance cannot be multiplied without bound by creating
+  throwaway accounts.
 - **Bounded requests**: maximum message length, maximum reply length and a window on how much
   conversation history is sent.
 - **Prompt caching**: follow-up messages in a conversation reuse the cached history at a
@@ -114,19 +124,34 @@ console shows the authoritative figures.
   `noopener noreferrer`, and remote images are never loaded.
 - **Authorisation** is checked on every page and API route; conversations are always looked up
   together with their owner. The admin area answers with *404* for everyone else.
-- **Rate limits** on sign-in (per address and per account), registration, chat, password
-  changes and exports. One reply at a time per user.
+- **Rate limits** on sign-in, registration, chat, password changes and exports, keyed on the
+  client network (IPv6 clients are grouped by /64). Sign-in limits are tied to where the attempts
+  come from, so an attacker cannot lock somebody else out of their account. Password hashing runs
+  with bounded concurrency. One reply at a time per user.
+- **Bounded work per request**: long conversations are loaded and shown page by page, Markdown is
+  rendered in the browser rather than on the server, and exports are streamed.
 - **Privacy**: IP addresses are stored only as keyed hashes. Message content is never written
   to logs. The admin dashboard shows usage numbers, not conversations. Users can export their
   data and delete their chats or their account.
-- **The API key** stays on the server in `/etc/craftingai/craftingai.env` (mode `0640`,
-  `root:craftingai`). Provider error messages are never passed on to users.
+- **The API key** stays on the server in `/etc/lishia/lishia.env` (mode `0640`,
+  `root:lishia`). Provider error messages are never passed on to users.
 - **Service hardening**: the app runs as an unprivileged user in a systemd sandbox
   (`ProtectSystem=strict`, `NoNewPrivileges`, no capabilities) that can write only to its data
   and cache directories. The code itself is owned by root. The app listens on `127.0.0.1` only.
 
 Not included: email verification and password-reset emails (there is no mail server
-dependency). Administrators reset passwords in the dashboard or on the command line.
+dependency). Administrators reset passwords in the dashboard or on the command line. Without
+email verification, registration reveals whether an address already has an account, and people
+can register with addresses they do not own; the registration ceiling and the daily budget are
+the backstop.
+
+### Running behind a CDN
+
+The installer assumes visitors connect to Caddy directly. If you put a CDN or another proxy
+(for example Cloudflare) in front, every visitor appears to come from the CDN's addresses and
+would share one rate-limit bucket. In that case add the CDN's address ranges as
+[`trusted_proxies`](https://caddyserver.com/docs/caddyfile/options#trusted-proxies) in
+`/etc/caddy/Caddyfile` so that Caddy passes on the real client address.
 
 ---
 
@@ -134,9 +159,9 @@ dependency). Administrators reset passwords in the dashboard or on the command l
 
 | Task | Command |
 | --- | --- |
-| Status | `systemctl status craftingai` |
-| Live logs | `journalctl -u craftingai -f` |
-| Restart | `sudo systemctl restart craftingai` |
+| Status | `systemctl status lishia` |
+| Live logs | `journalctl -u lishia -f` |
+| Restart | `sudo systemctl restart lishia` |
 | HTTPS / certificate logs | `journalctl -u caddy -e` |
 
 **Update** to a newer version: pull the code and run the installer again. It keeps your
@@ -152,32 +177,33 @@ sudo bash install.sh
 ```
 
 **Change the domain, API key or other answers:** `sudo bash install.sh --reconfigure`, or edit
-`/etc/craftingai/craftingai.env` and restart the service.
+`/etc/lishia/lishia.env` and restart the service.
 
 **Reset an administrator password** on the server (prints a generated password):
 
 ```bash
-cd /opt/craftingai/current && sudo -H -u craftingai env DATA_DIR=/var/lib/craftingai npm run admin -- reset you@example.com
+cd /opt/lishia/current && sudo -H -u lishia env DATA_DIR=/var/lib/lishia npm run admin -- reset you@example.com
 ```
 
 Use `create` instead of `reset` to add an administrator or promote an existing account.
 
-**Backups:** a snapshot of the database is written to `/var/lib/craftingai/backups` every day
+**Backups:** a snapshot of the database is written to `/var/lib/lishia/backups` every day
 and the last seven are kept. Copy them off the server regularly. To restore, stop the service,
-replace `/var/lib/craftingai/craftingai.db` with a snapshot (remove the `-wal` and `-shm` files
+replace `/var/lib/lishia/lishia.db` with a snapshot (remove the `-wal` and `-shm` files
 next to it), and start the service again.
 
 **Unattended install:** every question can be answered through environment variables
-(`DOMAIN`, `ACME_EMAIL`, `ANTHROPIC_API_KEY`, `SITE_NAME`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`,
-`DAILY_BUDGET_USD`, `SETUP_FIREWALL=yes|no`) together with `ASSUME_YES=1`.
+(`DOMAIN`, `ACME_EMAIL`, `ANTHROPIC_API_KEY`, `SITE_NAME`, `ASSISTANT_NAME`, `ADMIN_EMAIL`,
+`ADMIN_PASSWORD`, `CONTACT_EMAIL`, `DAILY_BUDGET_USD`, `SETUP_FIREWALL=yes|no`) together with
+`ASSUME_YES=1`.
 
 ### File locations
 
 | Path | Contents |
 | --- | --- |
-| `/opt/craftingai/current` | Application code and build of the live release (read-only for the service) |
-| `/var/lib/craftingai` | Database and backups |
-| `/etc/craftingai/craftingai.env` | Configuration and secrets |
+| `/opt/lishia/current` | Application code and build of the live release (read-only for the service) |
+| `/var/lib/lishia` | Database and backups |
+| `/etc/lishia/lishia.env` | Configuration and secrets |
 | `/etc/caddy/Caddyfile` | Web server and HTTPS configuration |
 
 ---

@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { audit } from "./audit";
-import { hashIp } from "./ids";
+import { ipRateKey } from "./ids";
 import { ApiError } from "./http";
 import {
   burnPasswordCheck,
@@ -13,6 +13,7 @@ import {
 import { rateLimit } from "./ratelimit";
 import { getSettings } from "./settings";
 import {
+  countUsersCreatedSince,
   createUser,
   findUserByEmail,
   markLogin,
@@ -62,9 +63,26 @@ export async function registerAccount(
   if (!settings.registrationOpen) {
     throw new ApiError(403, "registration_closed", "Registration is currently closed.");
   }
-  const ipKey = hashIp(ip) ?? "unknown";
-  const limit = rateLimit(`register:${ipKey}`, 5, 60 * MINUTE);
-  if (!limit.ok) throw tooMany(limit.retryAfter);
+  // Per network: a handful of accounts per hour and per day.
+  const ipKey = ipRateKey(ip);
+  const hourly = rateLimit(`register-hour:${ipKey}`, 5, 60 * MINUTE);
+  if (!hourly.ok) throw tooMany(hourly.retryAfter);
+  const daily = rateLimit(`register-day:${ipKey}`, 10, 24 * 60 * MINUTE);
+  if (!daily.ok) throw tooMany(daily.retryAfter);
+
+  // Site-wide: a ceiling on new accounts per day, so that mass registration
+  // cannot be used to multiply the free allowance.
+  if (settings.maxDailyRegistrations > 0) {
+    const startOfDay = new Date();
+    startOfDay.setUTCHours(0, 0, 0, 0);
+    if (countUsersCreatedSince(startOfDay.getTime()) >= settings.maxDailyRegistrations) {
+      throw new ApiError(
+        403,
+        "registration_limit",
+        "We are not accepting new registrations right now. Please try again tomorrow.",
+      );
+    }
+  }
 
   if (input.website) {
     // Filled honeypot: almost certainly a bot. Reject without saying why.
@@ -91,12 +109,15 @@ export async function authenticate(
   ip: string | null,
 ): Promise<UserRow> {
   const email = normalizeEmail(input.email);
-  const ipKey = hashIp(ip) ?? "unknown";
+  const ipKey = ipRateKey(ip);
 
   // Limits apply whether or not the account exists, so they reveal nothing.
-  const byIp = rateLimit(`login-ip:${ipKey}`, 30, 15 * MINUTE);
-  if (!byIp.ok) throw tooMany(byIp.retryAfter);
-  const byAccount = rateLimit(`login-account:${email}`, 10, 15 * MINUTE);
+  // They are tied to the network the attempts come from: somebody guessing
+  // passwords is slowed down, but cannot lock the real owner out of the
+  // account from elsewhere.
+  const byNetwork = rateLimit(`login-ip:${ipKey}`, 30, 15 * MINUTE);
+  if (!byNetwork.ok) throw tooMany(byNetwork.retryAfter);
+  const byAccount = rateLimit(`login:${ipKey}:${email}`, 8, 15 * MINUTE);
   if (!byAccount.ok) throw tooMany(byAccount.retryAfter);
 
   const invalid = new ApiError(401, "invalid_credentials", "Incorrect email address or password.");

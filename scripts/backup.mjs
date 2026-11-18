@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
  * Creates a consistent snapshot of the database and removes old snapshots.
- * Run daily by the craftingai-backup systemd timer that install.sh sets up.
+ * Run daily by the lishia-backup systemd timer that install.sh sets up.
  *
- *   DATA_DIR=/var/lib/craftingai node scripts/backup.mjs
+ *   DATA_DIR=/var/lib/lishia node scripts/backup.mjs
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -11,7 +11,7 @@ import Database from "better-sqlite3";
 
 const KEEP = Number(process.env.BACKUP_KEEP ?? 7);
 const dataDir = process.env.DATA_DIR ?? path.join(process.cwd(), ".data");
-const source = path.join(dataDir, "craftingai.db");
+const source = path.join(dataDir, "lishia.db");
 const targetDir = path.join(dataDir, "backups");
 
 if (!fs.existsSync(source)) {
@@ -21,7 +21,7 @@ if (!fs.existsSync(source)) {
 
 fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-const target = path.join(targetDir, `craftingai-${stamp}.db`);
+const target = path.join(targetDir, `lishia-${stamp}.db`);
 
 const db = new Database(source, { readonly: true, fileMustExist: true });
 try {
@@ -35,7 +35,7 @@ console.log(`Backup written to ${target}`);
 
 const snapshots = fs
   .readdirSync(targetDir)
-  .filter((name) => /^craftingai-.*\.db$/.test(name))
+  .filter((name) => /^lishia-.*\.db$/.test(name))
   .sort()
   .reverse();
 for (const name of snapshots.slice(KEEP)) {

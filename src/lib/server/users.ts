@@ -97,3 +97,10 @@ export function countAdmins(): number {
     .get() as { n: number };
   return row.n;
 }
+
+export function countUsersCreatedSince(timestamp: number): number {
+  const row = getDb()
+    .prepare("SELECT COUNT(*) AS n FROM users WHERE created_at >= ?")
+    .get(timestamp) as { n: number };
+  return row.n;
+}

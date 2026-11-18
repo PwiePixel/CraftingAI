@@ -12,7 +12,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const { user } = await requireUser();
   const settings = getSettings();
   const jar = await cookies();
-  const preferredTier = jar.get("crafting_tier")?.value;
+  const preferredTier = jar.get("lishia_tier")?.value;
 
   const data: ShellData = {
     user: toSessionUser(user),
@@ -20,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     tiers: publicTiers(user, settings),
     conversations: listConversations(user.id),
     preferredTier: isTierId(preferredTier) ? preferredTier : null,
-    sidebarCollapsed: jar.get("crafting_sidebar")?.value === "collapsed",
+    sidebarCollapsed: jar.get("lishia_sidebar")?.value === "collapsed",
     theme: await getThemePreference(),
   };
 

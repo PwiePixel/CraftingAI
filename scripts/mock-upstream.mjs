@@ -93,7 +93,8 @@ const server = http.createServer(async (req, res) => {
     content: [],
     stop_reason: null,
     stop_sequence: null,
-    usage: usage(0),
+    // Like the real service, the first event already reports a token or two.
+    usage: usage(1),
   };
 
   if (!body.stream) {

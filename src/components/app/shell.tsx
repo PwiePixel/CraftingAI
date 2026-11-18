@@ -84,7 +84,7 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
 
   const setPreferredTier = useCallback((tier: TierId) => {
     setPreferredTierState(tier);
-    setPreferenceCookie("crafting_tier", tier);
+    setPreferenceCookie("lishia_tier", tier);
   }, []);
 
   const upsertConversation = useCallback(
@@ -125,7 +125,7 @@ export function AppShell({ data, children }: { data: ShellData; children: ReactN
   const toggleSidebar = useCallback(() => {
     if (window.matchMedia("(min-width: 768px)").matches) {
       setCollapsed((value) => {
-        setPreferenceCookie("crafting_sidebar", value ? "open" : "collapsed");
+        setPreferenceCookie("lishia_sidebar", value ? "open" : "collapsed");
         return !value;
       });
     } else {

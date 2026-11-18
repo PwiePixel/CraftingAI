@@ -15,6 +15,10 @@ export function SettingsForm({ settings }: { settings: Settings }) {
   const [tagline, setTagline] = useState(settings.tagline);
   const [announcement, setAnnouncement] = useState(settings.announcement);
   const [registrationOpen, setRegistrationOpen] = useState(settings.registrationOpen);
+  const [inDevelopment, setInDevelopment] = useState(settings.inDevelopment);
+  const [maxDailyRegistrations, setMaxDailyRegistrations] = useState(
+    String(settings.maxDailyRegistrations),
+  );
   const [customInstructions, setCustomInstructions] = useState(settings.customInstructions);
   const [legal, setLegal] = useState({
     ...settings.legal,
@@ -35,7 +39,9 @@ export function SettingsForm({ settings }: { settings: Settings }) {
           assistantName,
           tagline,
           announcement,
+          inDevelopment,
           registrationOpen,
+          maxDailyRegistrations: Number(maxDailyRegistrations),
           customInstructions,
           legal: { ...legal, minimumAge: Number(legal.minimumAge) },
         },
@@ -89,13 +95,35 @@ export function SettingsForm({ settings }: { settings: Settings }) {
       </Card>
 
       <Card>
-        <CardHeader title="Access" />
-        <div className="p-5">
+        <CardHeader title="Access and status" />
+        <div className="flex flex-col gap-5 p-5">
           <Switch
             checked={registrationOpen}
             onChange={setRegistrationOpen}
             label="Open registration"
             description="When off, only administrators can create accounts (Users → Add user)."
+          />
+          <Field
+            label="New accounts per day"
+            htmlFor="max-registrations"
+            hint="Site-wide ceiling on registrations per day (UTC). It limits how far the free allowance can be multiplied with throwaway accounts. 0 removes the ceiling."
+            className="max-w-xs"
+          >
+            <Input
+              id="max-registrations"
+              type="number"
+              min={0}
+              step={1}
+              required
+              value={maxDailyRegistrations}
+              onChange={(event) => setMaxDailyRegistrations(event.target.value)}
+            />
+          </Field>
+          <Switch
+            checked={inDevelopment}
+            onChange={setInDevelopment}
+            label="Show the “in development” notice"
+            description="Tells visitors on the home page that the project is still being built. Turn it off once you consider the site finished."
           />
         </div>
       </Card>

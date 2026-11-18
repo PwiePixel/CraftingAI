@@ -4,6 +4,7 @@ import { unstable_rethrow } from "next/navigation";
 import { ZodError, type ZodType } from "zod";
 import type { ApiErrorBody } from "@/lib/shared/types";
 import { env } from "./env";
+import { TooBusyError } from "./password";
 
 export class ApiError extends Error {
   constructor(
@@ -37,8 +38,18 @@ export function errorResponse(error: ApiError): NextResponse<ApiErrorBody> {
  * Client address as reported by the trusted reverse proxy. The proxy appends
  * the real peer address, so the right-most entry is the one to trust.
  */
+let warnedAboutUnknownAddress = false;
+
 export function clientIp(request: Request): string | null {
-  if (!env.trustProxy) return null;
+  if (!env.trustProxy) {
+    if (env.isProd && !warnedAboutUnknownAddress) {
+      warnedAboutUnknownAddress = true;
+      console.warn(
+        "[http] TRUST_PROXY is not set, so client addresses are unknown and per-address rate limits are shared by all visitors. Run the app behind a reverse proxy and set TRUST_PROXY=1.",
+      );
+    }
+    return null;
+  }
   const forwarded = request.headers.get("x-forwarded-for");
   if (!forwarded) return null;
   const parts = forwarded
@@ -141,6 +152,11 @@ export function route<C = unknown>(handler: Handler<C>): Handler<C> {
     } catch (error) {
       unstable_rethrow(error);
       if (error instanceof ApiError) return errorResponse(error);
+      if (error instanceof TooBusyError) {
+        return errorResponse(
+          new ApiError(503, "busy", "The service is busy right now. Please try again in a moment.", 5),
+        );
+      }
       if (error instanceof ZodError) {
         return errorResponse(new ApiError(400, "invalid_request", firstIssue(error)));
       }

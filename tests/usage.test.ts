@@ -4,9 +4,13 @@ import { getSettings, updateSettings } from "@/lib/server/settings";
 import {
   assertWithinQuota,
   costMicroUsd,
+  estimateTokens,
   messagesUsedToday,
   publicTiers,
   recordUsage,
+  releaseUsage,
+  reserveUsage,
+  settleUsage,
   spendTodayMicroUsd,
   tierLimit,
 } from "@/lib/server/usage";
@@ -105,5 +109,57 @@ describe("daily limits", () => {
     expect(error.code).toBe("capacity_reached");
     updateSettings({ dailyBudgetUsd: 0 });
     expect(() => assertWithinQuota(user, "lite", getSettings())).not.toThrow();
+  });
+});
+
+describe("reservations", () => {
+  it("count against the allowance from the moment a message is accepted", async () => {
+    const user = await makeUser();
+    const tier = getSettings().tiers.lite;
+    const before = messagesUsedToday(user.id, "lite");
+    const reservation = reserveUsage({ userId: user.id, tierId: "lite", tier, promptChars: 3000 });
+    // Nothing has come back from the provider yet, but the message already counts.
+    expect(messagesUsedToday(user.id, "lite")).toBe(before + 1);
+    settleUsage(reservation, tier, usage(900, 300));
+    expect(messagesUsedToday(user.id, "lite")).toBe(before + 1);
+  });
+
+  it("hold the worst-case cost until the real numbers are known", async () => {
+    const user = await makeUser();
+    const tier = getSettings().tiers.ultra;
+    const spendBefore = spendTodayMicroUsd();
+    const reservation = reserveUsage({ userId: user.id, tierId: "ultra", tier, promptChars: 30_000 });
+    const worstCase = costMicroUsd(tier, {
+      inputTokens: 0,
+      outputTokens: tier.maxOutputTokens,
+      cacheReadTokens: 0,
+      cacheWriteTokens: estimateTokens(30_000),
+    });
+    expect(spendTodayMicroUsd() - spendBefore).toBe(worstCase);
+
+    settleUsage(reservation, tier, usage(1000, 200));
+    const actual = costMicroUsd(tier, usage(1000, 200));
+    expect(actual).toBeLessThan(worstCase);
+    expect(spendTodayMicroUsd() - spendBefore).toBe(actual);
+  });
+
+  it("are refunded only when the provider never worked on the request", async () => {
+    const user = await makeUser();
+    const tier = getSettings().tiers.pro;
+    const before = messagesUsedToday(user.id, "pro");
+    const reservation = reserveUsage({ userId: user.id, tierId: "pro", tier, promptChars: 100 });
+    releaseUsage(reservation);
+    expect(messagesUsedToday(user.id, "pro")).toBe(before);
+  });
+
+  it("make it impossible to exceed the allowance with unanswered messages", async () => {
+    const user = await makeUser();
+    const settings = getSettings();
+    const limit = settings.tiers.ultra.dailyLimit;
+    for (let i = 0; i < limit; i += 1) {
+      assertWithinQuota(user, "ultra", settings);
+      reserveUsage({ userId: user.id, tierId: "ultra", tier: settings.tiers.ultra, promptChars: 10 });
+    }
+    expect(quotaError(() => assertWithinQuota(user, "ultra", settings)).code).toBe("quota_exceeded");
   });
 });

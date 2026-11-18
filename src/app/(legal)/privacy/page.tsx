@@ -164,7 +164,7 @@ export default function PrivacyPage() {
           <tbody>
             <tr>
               <td>
-                <code>__Host-crafting_session</code>
+                <code>__Host-lishia_session</code>
               </td>
               <td>Keeps you signed in. Strictly necessary.</td>
               <td>Up to 30 days</td>
@@ -178,14 +178,14 @@ export default function PrivacyPage() {
             </tr>
             <tr>
               <td>
-                <code>crafting_tier</code>
+                <code>lishia_tier</code>
               </td>
               <td>Remembers the model you last selected.</td>
               <td>1 year</td>
             </tr>
             <tr>
               <td>
-                <code>crafting_sidebar</code>
+                <code>lishia_sidebar</code>
               </td>
               <td>Remembers whether the sidebar is collapsed.</td>
               <td>1 year</td>

@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import {
   ChevronsUpDown,
   FileText,
+  Home,
   LogOut,
   Monitor,
   Moon,
@@ -51,7 +52,7 @@ export function ThemeToggle({ initial }: { initial: ThemePreference }) {
 }
 
 export function UserMenu() {
-  const { user, theme, closeMobileSidebar } = useShell();
+  const { user, site, theme, closeMobileSidebar } = useShell();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => setOpen(false), []);
@@ -104,6 +105,10 @@ export function UserMenu() {
               Admin dashboard
             </Link>
           ) : null}
+          <Link href="/" role="menuitem" className={itemClass} onClick={close}>
+            <Home size={16} className="text-fg-muted" />
+            About {site.siteName}
+          </Link>
           <Link href="/terms" target="_blank" role="menuitem" className={itemClass} onClick={close}>
             <FileText size={16} className="text-fg-muted" />
             Terms &amp; policies

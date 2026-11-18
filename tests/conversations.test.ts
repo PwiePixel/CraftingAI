@@ -6,7 +6,9 @@ import {
   deleteConversation,
   dropTrailingAssistantMessages,
   getConversation,
+  findMessageSeq,
   listConversations,
+  listMessagePage,
   listMessageRows,
   renameConversation,
   titleFromMessage,
@@ -66,6 +68,33 @@ describe("conversations", () => {
     deleteUser(user.id);
     expect(count()).toBe(0);
     expect(deleteAllConversations(user.id)).toBe(0);
+  });
+
+  it("pages through long conversations from the newest message backwards", async () => {
+    const user = await makeUser();
+    const conversation = createConversation(user.id, "Long", "lite");
+    const ids: string[] = [];
+    for (let i = 1; i <= 7; i += 1) {
+      ids.push(appendMessage(conversation.id, { role: i % 2 ? "user" : "assistant", content: `m${i}`, tier: "lite" }).id);
+    }
+    const newest = listMessagePage(conversation.id, 3);
+    expect(newest.rows.map((row) => row.content)).toEqual(["m5", "m6", "m7"]);
+    expect(newest.hasMore).toBe(true);
+
+    const beforeSeq = findMessageSeq(conversation.id, newest.rows[0]!.id);
+    const middle = listMessagePage(conversation.id, 3, beforeSeq);
+    expect(middle.rows.map((row) => row.content)).toEqual(["m2", "m3", "m4"]);
+    expect(middle.hasMore).toBe(true);
+
+    const oldest = listMessagePage(conversation.id, 3, findMessageSeq(conversation.id, middle.rows[0]!.id));
+    expect(oldest.rows.map((row) => row.content)).toEqual(["m1"]);
+    expect(oldest.hasMore).toBe(false);
+
+    // A message id from another conversation is not accepted as a cursor.
+    const other = createConversation(user.id, "Other", "lite");
+    expect(findMessageSeq(other.id, ids[0]!)).toBeUndefined();
+    // Reading from a starting point only returns what is needed for the reply.
+    expect(listMessageRows(conversation.id, 6).map((row) => row.content)).toEqual(["m6", "m7"]);
   });
 
   it("derives a short provisional title from the first message", () => {

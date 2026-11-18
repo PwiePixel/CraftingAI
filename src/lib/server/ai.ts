@@ -4,25 +4,30 @@ import type { TierSettings } from "@/lib/shared/settings-schema";
 import { emptyUsage, type UpstreamUsage } from "./usage";
 
 type Store = {
-  __craftingAi?: Anthropic;
-  __craftingAiStatus?: UpstreamStatus;
+  __lishiaAi?: Anthropic;
+  __lishiaAiStatus?: UpstreamStatus;
 };
 const store = globalThis as unknown as Store;
 
 function client(): Anthropic {
   // Credentials are read from the server environment and never leave the server.
-  store.__craftingAi ??= new Anthropic({ maxRetries: 2, timeout: 5 * 60_000 });
-  return store.__craftingAi;
+  store.__lishiaAi ??= new Anthropic({ maxRetries: 2, timeout: 5 * 60_000 });
+  return store.__lishiaAi;
 }
 
 export type UpstreamMessage = { role: "user" | "assistant"; content: string };
-export type FinishStatus = "complete" | "truncated" | "refused" | "stopped";
+export type FinishStatus = "complete" | "truncated" | "refused" | "stopped" | "failed";
 
 export interface StreamResult {
   status: FinishStatus;
+  /** Token counts as reported by the provider; zero where nothing was reported. */
   usage: UpstreamUsage;
-  /** False when the request was cancelled before the provider started working on it. */
-  billed: boolean;
+  /** True once the provider has started to answer, i.e. the request is billable. */
+  started: boolean;
+  /** Characters of reply text received, for estimating usage that was never reported. */
+  producedChars: number;
+  /** Set when `status` is "failed". */
+  error?: unknown;
 }
 
 /** Health of the upstream connection, shown on the admin dashboard only. */
@@ -33,8 +38,8 @@ export interface UpstreamStatus {
 }
 
 export function upstreamStatus(): UpstreamStatus {
-  store.__craftingAiStatus ??= { lastSuccessAt: null, lastErrorAt: null, lastError: null };
-  return store.__craftingAiStatus;
+  store.__lishiaAiStatus ??= { lastSuccessAt: null, lastErrorAt: null, lastError: null };
+  return store.__lishiaAiStatus;
 }
 
 interface UsageLike {
@@ -54,6 +59,31 @@ function applyUsage(target: UpstreamUsage, source: UsageLike | null | undefined)
   if (typeof source.cache_creation_input_tokens === "number") {
     target.cacheWriteTokens = source.cache_creation_input_tokens;
   }
+}
+
+/**
+ * When a request was served in several attempts (for example after a fallback
+ * to a substitute model), every attempt is billed. The per-attempt list is the
+ * authoritative record; the top-level numbers only cover the final attempt.
+ */
+function applyFinalUsage(
+  target: UpstreamUsage,
+  source: (UsageLike & { iterations?: readonly unknown[] | null }) | null | undefined,
+): void {
+  if (!source) return;
+  const attempts = (source.iterations ?? []).filter(
+    (entry): entry is UsageLike => typeof entry === "object" && entry !== null,
+  );
+  if (attempts.length === 0) {
+    applyUsage(target, source);
+    return;
+  }
+  const sum = (pick: (entry: UsageLike) => number | null | undefined) =>
+    attempts.reduce((total, entry) => total + (pick(entry) ?? 0), 0);
+  target.inputTokens = sum((entry) => entry.input_tokens);
+  target.outputTokens = sum((entry) => entry.output_tokens);
+  target.cacheReadTokens = sum((entry) => entry.cache_read_input_tokens);
+  target.cacheWriteTokens = sum((entry) => entry.cache_creation_input_tokens);
 }
 
 function finishStatus(stopReason: string | null): FinishStatus {
@@ -76,32 +106,37 @@ export interface StreamOptions {
   onText: (text: string) => void;
 }
 
+/** Models for which the optional fallback was rejected; not asked again until restart. */
+const fallbackUnsupported = ((globalThis as unknown as { __lishiaNoFallback?: Set<string> })
+  .__lishiaNoFallback ??= new Set<string>());
+
 /**
  * Streams one assistant reply. Text is passed to `onText` as it arrives.
- * Throws the SDK's typed errors for upstream failures; cancellation through
- * `signal` resolves normally with status "stopped".
+ * Never throws: upstream failures resolve with status "failed", cancellation
+ * through `signal` with status "stopped".
  */
 export async function streamReply(options: StreamOptions): Promise<StreamResult> {
-  const { tier } = options;
-  try {
-    const result = await runStream(options, tier.refusalFallback);
-    upstreamStatus().lastSuccessAt = Date.now();
-    return result;
-  } catch (error) {
-    // The server-side fallback is an opt-in beta. If a model or account does
-    // not accept it, the request is rejected before any output is produced,
-    // so it is safe to run it once more without the option.
-    if (
-      tier.refusalFallback &&
-      error instanceof Anthropic.BadRequestError &&
-      !options.signal.aborted
-    ) {
-      const result = await runStream(options, false);
-      upstreamStatus().lastSuccessAt = Date.now();
-      return result;
-    }
-    throw error;
+  const { tier, signal } = options;
+  const withFallback = tier.refusalFallback && !fallbackUnsupported.has(tier.model);
+
+  let result = await runStream(options, withFallback);
+  // The server-side fallback is an opt-in beta. A model or account that does
+  // not accept it rejects the request before producing anything, so the
+  // request can safely be sent once more without the option.
+  if (
+    withFallback &&
+    result.status === "failed" &&
+    !result.started &&
+    result.error instanceof Anthropic.BadRequestError &&
+    !signal.aborted
+  ) {
+    result = await runStream(options, false);
+    if (result.status !== "failed") fallbackUnsupported.add(tier.model);
   }
+  if (result.status !== "failed" && result.status !== "stopped") {
+    upstreamStatus().lastSuccessAt = Date.now();
+  }
+  return result;
 }
 
 async function runStream(options: StreamOptions, withFallback: boolean): Promise<StreamResult> {
@@ -120,14 +155,14 @@ async function runStream(options: StreamOptions, withFallback: boolean): Promise
     ...(tier.effort !== "default" ? { output_config: { effort: tier.effort } } : {}),
   };
 
-  const stream = withFallback
-    ? client().beta.messages.stream(
-        { ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" },
-        { signal },
-      )
-    : client().messages.stream(params, { signal });
-
   try {
+    const stream = withFallback
+      ? client().beta.messages.stream(
+          { ...params, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" },
+          { signal },
+        )
+      : client().messages.stream(params, { signal });
+
     for await (const event of stream) {
       if (event.type === "message_start") {
         started = true;
@@ -142,15 +177,13 @@ async function runStream(options: StreamOptions, withFallback: boolean): Promise
       }
     }
     const final = await stream.finalMessage();
-    applyUsage(usage, final.usage);
-    return { status: finishStatus(final.stop_reason), usage, billed: true };
+    applyFinalUsage(usage, final.usage);
+    return { status: finishStatus(final.stop_reason), usage, started: true, producedChars };
   } catch (error) {
     if (signal.aborted || error instanceof Anthropic.APIUserAbortError) {
-      // The final token count never arrived; estimate it from the text received.
-      if (usage.outputTokens === 0) usage.outputTokens = Math.ceil(producedChars / 3);
-      return { status: "stopped", usage, billed: started };
+      return { status: "stopped", usage, started, producedChars };
     }
-    throw error;
+    return { status: "failed", usage, started, producedChars, error };
   }
 }
 

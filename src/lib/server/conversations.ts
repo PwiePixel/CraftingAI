@@ -121,10 +121,46 @@ export function deleteAllConversations(userId: string): number {
   return getDb().prepare("DELETE FROM conversations WHERE user_id = ?").run(userId).changes;
 }
 
-export function listMessageRows(conversationId: string): MessageRow[] {
+/** All messages from `fromSeq` on, oldest first. */
+export function listMessageRows(conversationId: string, fromSeq = 0): MessageRow[] {
   return getDb()
-    .prepare("SELECT * FROM messages WHERE conversation_id = ? ORDER BY seq ASC")
-    .all(conversationId) as MessageRow[];
+    .prepare("SELECT * FROM messages WHERE conversation_id = ? AND seq >= ? ORDER BY seq ASC")
+    .all(conversationId, fromSeq) as MessageRow[];
+}
+
+/** Number of messages shown at once; older ones are loaded on request. */
+export const MESSAGE_PAGE_SIZE = 60;
+
+/**
+ * The newest `limit` messages (older than `beforeSeq`, if given), oldest
+ * first. Long conversations are never loaded into memory as a whole.
+ */
+export function listMessagePage(
+  conversationId: string,
+  limit = MESSAGE_PAGE_SIZE,
+  beforeSeq?: number,
+): { rows: MessageRow[]; hasMore: boolean } {
+  const rows = getDb()
+    .prepare(
+      "SELECT * FROM messages WHERE conversation_id = ? AND seq < ? ORDER BY seq DESC LIMIT ?",
+    )
+    .all(conversationId, beforeSeq ?? Number.MAX_SAFE_INTEGER, limit + 1) as MessageRow[];
+  const hasMore = rows.length > limit;
+  return { rows: rows.slice(0, limit).reverse(), hasMore };
+}
+
+export function findMessageSeq(conversationId: string, messageId: string): number | undefined {
+  const row = getDb()
+    .prepare("SELECT seq FROM messages WHERE id = ? AND conversation_id = ?")
+    .get(messageId, conversationId) as { seq: number } | undefined;
+  return row?.seq;
+}
+
+export function listConversationIds(userId: string): string[] {
+  const rows = getDb()
+    .prepare("SELECT id FROM conversations WHERE user_id = ? ORDER BY created_at ASC")
+    .all(userId) as { id: string }[];
+  return rows.map((row) => row.id);
 }
 
 export function appendMessage(

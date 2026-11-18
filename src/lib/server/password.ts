@@ -65,16 +65,50 @@ export function passwordProblem(password: string, email?: string): string | null
   return null;
 }
 
+/** Thrown when too many password operations are already waiting. */
+export class TooBusyError extends Error {
+  constructor() {
+    super("Too many password operations in progress.");
+    this.name = "TooBusyError";
+  }
+}
+
+/**
+ * Argon2 is deliberately expensive (32 MiB and a few dozen milliseconds per
+ * call). Only a few calls run at once and the waiting line is short, so a
+ * burst of sign-in attempts cannot exhaust the server's memory or CPU.
+ */
+const MAX_CONCURRENT = 3;
+const MAX_WAITING = 40;
+let running = 0;
+const waiting: Array<() => void> = [];
+
+async function withSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (running >= MAX_CONCURRENT) {
+    if (waiting.length >= MAX_WAITING) throw new TooBusyError();
+    await new Promise<void>((resolve) => waiting.push(resolve));
+  }
+  running += 1;
+  try {
+    return await task();
+  } finally {
+    running -= 1;
+    waiting.shift()?.();
+  }
+}
+
 export function hashPassword(password: string): Promise<string> {
-  return hash(password, OPTIONS);
+  return withSlot(() => hash(password, OPTIONS));
 }
 
 export async function verifyPassword(passwordHash: string, password: string): Promise<boolean> {
-  try {
-    return await verify(passwordHash, password);
-  } catch {
-    return false;
-  }
+  return withSlot(async () => {
+    try {
+      return await verify(passwordHash, password);
+    } catch {
+      return false;
+    }
+  });
 }
 
 let dummyHash: Promise<string> | undefined;

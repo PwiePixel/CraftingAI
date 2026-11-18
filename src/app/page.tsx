@@ -1,6 +1,19 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { ArrowRight, Code, Download, Gem, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  ChevronDown,
+  Code,
+  Construction,
+  Download,
+  Gem,
+  Lightbulb,
+  PenLine,
+  ShieldCheck,
+  Sparkles,
+  Zap,
+} from "lucide-react";
 import { Logo, LogoMark } from "@/components/logo";
 import { buttonClass } from "@/components/ui";
 import { getAuth } from "@/lib/server/auth";
@@ -9,79 +22,224 @@ import { TIER_IDS, type TierId } from "@/lib/shared/types";
 
 const tierIcons: Record<TierId, typeof Zap> = { lite: Zap, pro: Sparkles, ultra: Gem };
 
-const features = [
-  {
-    icon: Zap,
-    title: "Answers in seconds",
-    text: "Replies stream in as they are written, so you never stare at a spinner.",
-  },
-  {
-    icon: Code,
-    title: "Made for real work",
-    text: "Clean formatting for code, tables and mathematics, with one-click copy.",
-  },
-  {
-    icon: ShieldCheck,
-    title: "Private by default",
-    text: "No ads and no tracking. Your conversations are yours and never sold.",
-  },
-  {
-    icon: Download,
-    title: "You stay in control",
-    text: "Export everything or delete your chats and your account whenever you like.",
-  },
+const navigation = [
+  { href: "#about", label: "About" },
+  { href: "#models", label: "Models" },
+  { href: "#privacy", label: "Privacy" },
+  { href: "#status", label: "Status" },
+  { href: "#faq", label: "FAQ" },
 ];
 
-export default async function LandingPage() {
-  if (await getAuth()) redirect("/chat");
+function SectionHeading({ eyebrow, title, text }: { eyebrow: string; title: string; text?: string }) {
+  return (
+    <div className="max-w-2xl">
+      <p className="text-sm font-medium text-accent">{eyebrow}</p>
+      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-balance sm:text-3xl">{title}</h2>
+      {text ? <p className="mt-3 leading-relaxed text-fg-muted">{text}</p> : null}
+    </div>
+  );
+}
+
+export default async function HomePage() {
+  const signedIn = Boolean(await getAuth());
   const settings = getSettings();
-  const { siteName, assistantName } = settings;
+  const { siteName, assistantName, inDevelopment, registrationOpen } = settings;
+  const contactEmail = settings.legal.contactEmail;
   const tiers = TIER_IDS.filter((id) => settings.tiers[id].enabled).map((id) => ({
     id,
     ...settings.tiers[id],
   }));
-  const primaryHref = settings.registrationOpen ? "/register" : "/login";
+
+  const primary = signedIn
+    ? { href: "/chat", label: "Open chat" }
+    : registrationOpen
+      ? { href: "/register", label: "Start chatting" }
+      : { href: "/login", label: "Sign in" };
+
+  const useCases = [
+    {
+      icon: Lightbulb,
+      title: "Ask and understand",
+      text: "Get clear explanations for anything from tax terms to quantum physics, at the level you ask for.",
+    },
+    {
+      icon: PenLine,
+      title: "Write and edit",
+      text: "Draft emails, posts and letters, tighten your wording, summarise long texts or translate them.",
+    },
+    {
+      icon: Code,
+      title: "Code and debug",
+      text: "Have code written, explained or reviewed, with syntax highlighting and one-click copy.",
+    },
+    {
+      icon: BookOpen,
+      title: "Plan and brainstorm",
+      text: "Think through ideas, compare options, and turn loose thoughts into a structured plan.",
+    },
+  ];
+
+  const steps = [
+    {
+      title: "Create a free account",
+      text: "An email address and a password are all you need. It takes less than a minute.",
+    },
+    {
+      title: "Pick a model",
+      text: "Choose the fast everyday model or a more capable one. You can switch at any time.",
+    },
+    {
+      title: "Start the conversation",
+      text: `Write your message. ${assistantName} answers within seconds, and your chats are saved so you can pick up later.`,
+    },
+  ];
+
+  const principles = [
+    {
+      icon: ShieldCheck,
+      title: "Private by default",
+      text: "No advertising and no tracking. Your conversations are never sold.",
+    },
+    {
+      icon: Download,
+      title: "You stay in control",
+      text: "Export your data, or delete single chats, all chats or your whole account whenever you like.",
+    },
+    {
+      icon: Zap,
+      title: "Free to use",
+      text: "Every account includes a daily number of messages for each model, at no cost.",
+    },
+  ];
+
+  const availableToday = [
+    "Live, streaming answers",
+    tiers.length > 1 ? `${tiers.length} models to choose from` : "A fast everyday model",
+    "Saved conversations with search",
+    "Formatted code, tables and mathematics",
+    "Light and dark mode on desktop and mobile",
+    "Data export and account deletion",
+  ];
+
+  const expectations = [
+    {
+      title: "Things will change",
+      text: "Features, model names and daily limits may be adjusted as the project grows.",
+    },
+    {
+      title: "Short interruptions are possible",
+      text: "The site can be briefly unavailable during updates, or pause when the day's capacity is used up.",
+    },
+    {
+      title: "Answers can be wrong",
+      text: `Like every AI assistant, ${assistantName} makes mistakes. Double-check anything that matters.`,
+    },
+  ];
+
+  const questions = [
+    {
+      question: `Is ${siteName} free?`,
+      answer:
+        "Yes. Every account gets a daily number of messages for each model. The limits reset at midnight UTC.",
+    },
+    {
+      question: "Do I need an account?",
+      answer:
+        "Yes. A free account keeps your conversations private to you and makes fair daily limits possible.",
+    },
+    {
+      question: `Which technology is behind ${assistantName}?`,
+      answer: `${assistantName} is the assistant of ${siteName}. It is built on a combination of AI models, including models from third-party providers. The Privacy Policy lists the providers involved.`,
+    },
+    {
+      question: "What happens to my conversations?",
+      answer:
+        "They are stored in your account so you can return to them. They are not used for advertising and not sold. You can delete them at any time in the settings.",
+    },
+    {
+      question: "Can I rely on the answers?",
+      answer: `Treat them as a helpful starting point. ${assistantName} can be wrong or out of date and does not replace professional advice.`,
+    },
+  ];
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5">
-        <Logo name={siteName} />
-        <nav className="flex items-center gap-2">
-          <Link href="/login" className={buttonClass("ghost", "sm")}>
-            Sign in
+      <header className="sticky top-0 z-20 border-b border-border bg-bg/85 backdrop-blur">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-5">
+          <Link href="/" className="rounded-lg">
+            <Logo name={siteName} />
           </Link>
-          {settings.registrationOpen ? (
-            <Link href="/register" className={buttonClass("primary", "sm")}>
-              Get started
-            </Link>
-          ) : null}
-        </nav>
+          <nav aria-label="Sections" className="hidden items-center gap-1 md:flex">
+            {navigation.map((item) => (
+              <a
+                key={item.href}
+                href={item.href}
+                className="rounded-lg px-3 py-1.5 text-sm text-fg-muted transition-colors hover:bg-surface-2 hover:text-fg"
+              >
+                {item.label}
+              </a>
+            ))}
+          </nav>
+          <div className="flex items-center gap-2">
+            {signedIn ? (
+              <Link href="/chat" className={buttonClass("primary", "sm")}>
+                Open chat
+              </Link>
+            ) : (
+              <>
+                <Link href="/login" className={buttonClass("ghost", "sm")}>
+                  Sign in
+                </Link>
+                {registrationOpen ? (
+                  <Link href="/register" className={buttonClass("primary", "sm")}>
+                    Get started
+                  </Link>
+                ) : null}
+              </>
+            )}
+          </div>
+        </div>
       </header>
 
       <main className="flex-1">
+        {/* Hero */}
         <section className="mx-auto grid w-full max-w-6xl items-center gap-12 px-5 pt-12 pb-16 lg:grid-cols-[1.05fr_1fr] lg:pt-20 lg:pb-24">
           <div>
-            <p className="inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent">
-              <Sparkles size={13} />
-              Free to use
-            </p>
+            {inDevelopment ? (
+              <a
+                href="#status"
+                className="inline-flex items-center gap-2 rounded-full bg-warning-soft px-3 py-1 text-xs font-medium text-warning"
+              >
+                <Construction size={13} />
+                In development · early preview
+              </a>
+            ) : (
+              <p className="inline-flex items-center gap-2 rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent">
+                <Sparkles size={13} />
+                Free to use
+              </p>
+            )}
             <h1 className="mt-5 text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
               Meet {assistantName}, the AI assistant that gets things done.
             </h1>
             <p className="mt-5 max-w-xl text-lg leading-relaxed text-fg-muted">
-              Ask questions, draft texts, untangle code and think through ideas. {siteName} gives
-              you clear answers in a fast, distraction-free chat.
+              {siteName} is a free AI chat assistant for questions, writing, code and ideas. Clear
+              answers in a fast, distraction-free chat, without ads and without tracking.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Link href={primaryHref} className={buttonClass("primary", "lg")}>
-                Start chatting
+              <Link href={primary.href} className={buttonClass("primary", "lg")}>
+                {primary.label}
                 <ArrowRight size={18} />
               </Link>
-              <Link href="/login" className={buttonClass("secondary", "lg")}>
-                I already have an account
-              </Link>
+              <a href="#about" className={buttonClass("secondary", "lg")}>
+                Learn more
+              </a>
             </div>
-            <p className="mt-4 text-sm text-fg-subtle">No credit card. No ads. No tracking.</p>
+            <p className="mt-4 text-sm text-fg-subtle">
+              {!signedIn && !registrationOpen
+                ? "Registration is currently closed."
+                : "No credit card. No ads. No tracking."}
+            </p>
           </div>
 
           {/* Illustrative conversation */}
@@ -132,16 +290,53 @@ export default async function LandingPage() {
           </div>
         </section>
 
+        {/* About */}
+        <section id="about" className="scroll-mt-20 border-t border-border">
+          <div className="mx-auto w-full max-w-6xl px-5 py-16 lg:py-20">
+            <SectionHeading
+              eyebrow={`About ${siteName}`}
+              title="An AI assistant you can simply talk to"
+              text={`${siteName} is the home of ${assistantName}, an AI assistant that runs in your browser. You write a message in plain language and ${assistantName} replies within seconds: explaining, drafting, summarising, translating, debugging or brainstorming with you. There is nothing to install, and your conversations are saved to your account so you can continue them later on any device.`}
+            />
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {useCases.map(({ icon: Icon, title, text }) => (
+                <div key={title} className="rounded-2xl border border-border bg-surface p-5">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent-soft text-accent">
+                    <Icon size={19} />
+                  </span>
+                  <h3 className="mt-4 font-semibold">{title}</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-fg-muted">{text}</p>
+                </div>
+              ))}
+            </div>
+
+            <h3 className="mt-14 text-lg font-semibold">How it works</h3>
+            <ol className="mt-5 grid gap-6 md:grid-cols-3">
+              {steps.map((step, index) => (
+                <li key={step.title} className="flex gap-4">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border-strong text-sm font-semibold">
+                    {index + 1}
+                  </span>
+                  <div>
+                    <p className="font-medium">{step.title}</p>
+                    <p className="mt-1 text-sm leading-relaxed text-fg-muted">{step.text}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* Models */}
         {tiers.length > 0 ? (
-          <section className="border-y border-border bg-bg-subtle">
-            <div className="mx-auto w-full max-w-6xl px-5 py-16">
-              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                The right model for every task
-              </h2>
-              <p className="mt-2 max-w-2xl text-fg-muted">
-                Switch models at any time, even in the middle of a conversation.
-              </p>
-              <div className="mt-8 grid gap-4 md:grid-cols-3">
+          <section id="models" className="scroll-mt-20 border-y border-border bg-bg-subtle">
+            <div className="mx-auto w-full max-w-6xl px-5 py-16 lg:py-20">
+              <SectionHeading
+                eyebrow="Models"
+                title="The right model for every task"
+                text="Use the fast model for everyday questions and a more capable one when a problem needs more depth. You can switch at any time, even in the middle of a conversation."
+              />
+              <div className="mt-10 grid gap-4 md:grid-cols-3">
                 {tiers.map((tier) => {
                   const Icon = tierIcons[tier.id];
                   return (
@@ -152,7 +347,7 @@ export default async function LandingPage() {
                       <h3 className="mt-4 text-lg font-semibold">{tier.label}</h3>
                       <p className="mt-1 text-sm leading-relaxed text-fg-muted">{tier.description}</p>
                       <p className="mt-4 text-sm font-medium">
-                        {tier.dailyLimit} messages per day
+                        {tier.dailyLimit} {tier.dailyLimit === 1 ? "message" : "messages"} per day
                         <span className="font-normal text-fg-muted"> · free</span>
                       </p>
                     </div>
@@ -163,15 +358,119 @@ export default async function LandingPage() {
           </section>
         ) : null}
 
-        <section className="mx-auto w-full max-w-6xl px-5 py-16">
-          <div className="grid gap-x-8 gap-y-10 sm:grid-cols-2 lg:grid-cols-4">
-            {features.map(({ icon: Icon, title, text }) => (
-              <div key={title}>
-                <Icon size={22} className="text-accent" />
-                <h3 className="mt-3 font-semibold">{title}</h3>
-                <p className="mt-1 text-sm leading-relaxed text-fg-muted">{text}</p>
-              </div>
-            ))}
+        {/* Privacy and control */}
+        <section id="privacy" className="scroll-mt-20">
+          <div className="mx-auto w-full max-w-6xl px-5 py-16 lg:py-20">
+            <SectionHeading
+              eyebrow="Privacy and control"
+              title="Your conversations belong to you"
+              text="We collect only what is needed to run the service. The details are written down in plain language in the Privacy Policy."
+            />
+            <div className="mt-10 grid gap-x-8 gap-y-10 md:grid-cols-3">
+              {principles.map(({ icon: Icon, title, text }) => (
+                <div key={title}>
+                  <Icon size={22} className="text-accent" />
+                  <h3 className="mt-3 font-semibold">{title}</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-fg-muted">{text}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-10 text-sm text-fg-muted">
+              Read the{" "}
+              <Link href="/privacy" className="font-medium text-accent hover:underline">
+                Privacy Policy
+              </Link>{" "}
+              and the{" "}
+              <Link href="/terms" className="font-medium text-accent hover:underline">
+                Terms of Use
+              </Link>
+              .
+            </p>
+          </div>
+        </section>
+
+        {/* Project status */}
+        <section id="status" className="scroll-mt-20 border-y border-border bg-bg-subtle">
+          <div className="mx-auto w-full max-w-6xl px-5 py-16 lg:py-20">
+            {inDevelopment ? (
+              <>
+                <SectionHeading
+                  eyebrow="Project status"
+                  title={`${siteName} is currently in development`}
+                  text={`${siteName} is a young project that is still being built. You are welcome to use it today, and we are improving it continuously. Until it is finished, please keep a few things in mind.`}
+                />
+                <div className="mt-10 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+                  <div className="rounded-2xl border border-border bg-surface p-6">
+                    <h3 className="flex items-center gap-2 font-semibold">
+                      <Construction size={18} className="text-warning" />
+                      What to expect during development
+                    </h3>
+                    <ul className="mt-4 flex flex-col gap-4">
+                      {expectations.map((item) => (
+                        <li key={item.title}>
+                          <p className="text-sm font-medium">{item.title}</p>
+                          <p className="mt-0.5 text-sm leading-relaxed text-fg-muted">{item.text}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-2xl border border-border bg-surface p-6">
+                    <h3 className="font-semibold">Available today</h3>
+                    <ul className="mt-4 flex flex-col gap-2.5">
+                      {availableToday.map((item) => (
+                        <li key={item} className="flex items-start gap-2.5 text-sm">
+                          <Check size={16} className="mt-0.5 shrink-0 text-success" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+                {contactEmail ? (
+                  <p className="mt-6 text-sm text-fg-muted">
+                    Found a problem or have an idea? Write to{" "}
+                    <a href={`mailto:${contactEmail}`} className="font-medium text-accent hover:underline">
+                      {contactEmail}
+                    </a>
+                    .
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <SectionHeading
+                eyebrow="Project status"
+                title={`${siteName} is up and running`}
+                text={`All features described on this page are available. Like every AI assistant, ${assistantName} can make mistakes, so double-check anything that matters.`}
+              />
+            )}
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="scroll-mt-20">
+          <div className="mx-auto w-full max-w-3xl px-5 py-16 lg:py-20">
+            <SectionHeading eyebrow="FAQ" title="Questions and answers" />
+            <div className="mt-8 divide-y divide-border border-y border-border">
+              {questions.map((item) => (
+                <details key={item.question} className="group py-4">
+                  <summary className="flex list-none items-center justify-between gap-4 rounded-lg font-medium [&::-webkit-details-marker]:hidden">
+                    {item.question}
+                    <ChevronDown
+                      size={18}
+                      className="shrink-0 text-fg-subtle transition-transform group-open:rotate-180"
+                    />
+                  </summary>
+                  <p className="mt-2.5 pr-8 text-sm leading-relaxed text-fg-muted">{item.answer}</p>
+                </details>
+              ))}
+            </div>
+            <div className="mt-12 flex flex-col items-center gap-4 text-center">
+              <h2 className="text-2xl font-semibold tracking-tight">Ready to try {assistantName}?</h2>
+              <Link href={primary.href} className={buttonClass("primary", "lg")}>
+                {primary.label}
+                <ArrowRight size={18} />
+              </Link>
+            </div>
           </div>
         </section>
       </main>
@@ -181,7 +480,7 @@ export default async function LandingPage() {
           <span>
             © {new Date().getUTCFullYear()} {siteName}
           </span>
-          <nav className="flex flex-wrap gap-x-5 gap-y-1">
+          <nav aria-label="Legal" className="flex flex-wrap gap-x-5 gap-y-1">
             <Link href="/terms" className="hover:text-fg">
               Terms of Use
             </Link>
