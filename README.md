@@ -294,6 +294,7 @@ npm run lint && npm run typecheck && npm test
 install.sh                 Server installer and updater (Node.js, Caddy, systemd, firewall, backups)
 installer.sh               Alias for install.sh
 scripts/                   Admin command line, database backup, source repair, mock AI provider
+public/logo.webp           Logo (also src/app/icon.png and apple-icon.png for browser and phone icons)
 src/proxy.ts               Per-request Content-Security-Policy
 src/app/(auth)             Sign-in and registration
 src/app/(app)              Chat and account settings
